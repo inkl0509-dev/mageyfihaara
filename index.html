@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#e8590c">
+  <title>Dukaan POS</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="style.css">
+  <!-- Barcode scanner (camera) and barcode label generator -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+
+<!-- ============ LOGIN ============ -->
+<section id="login" class="hidden">
+  <div class="login-box">
+    <div class="logo">🥟</div>
+    <h1>Dukaan POS</h1>
+    <p class="muted">Simple billing for snack sellers</p>
+    <form id="loginForm">
+      <input id="email" type="email" placeholder="Email" required autocomplete="email">
+      <input id="password" type="password" placeholder="Password (min 6 letters)" required minlength="6" autocomplete="current-password">
+      <button class="btn primary big" type="submit">Login</button>
+      <button class="btn big" type="button" id="signupBtn">Create new account</button>
+      <button class="link" type="button" id="resetBtn">Forgot password?</button>
+    </form>
+  </div>
+</section>
+
+<!-- ============ APP ============ -->
+<section id="app" class="hidden">
+  <header class="top">
+    <span id="shopTitle">My Shop</span>
+    <span id="netStatus" class="pill hidden">Offline</span>
+  </header>
+
+  <main>
+    <!-- SELL -->
+    <div id="view-sell" class="view">
+      <div class="searchbar">
+        <input id="search" type="search" placeholder="Search item or type barcode…" autocomplete="off">
+        <button class="btn icon" id="scanSellBtn" title="Scan barcode">📷</button>
+      </div>
+      <p class="hint">Tap item = +1 &nbsp;·&nbsp; Hold item = type quantity</p>
+      <div id="sellGrid" class="grid"></div>
+      <div class="cartbar">
+        <div class="cartinfo">
+          <span id="cartCount">0 items</span>
+          <b id="cartTotal">Rs 0</b>
+        </div>
+        <button class="btn" id="clearCartBtn">Clear</button>
+        <button class="btn primary" id="checkoutBtn">Bill ▸</button>
+      </div>
+    </div>
+
+    <!-- ITEMS -->
+    <div id="view-items" class="view hidden">
+      <div class="searchbar">
+        <input id="itemSearch" type="search" placeholder="Search items…" autocomplete="off">
+        <button class="btn primary" id="addItemBtn">+ Add</button>
+      </div>
+      <div id="itemList" class="list"></div>
+    </div>
+
+    <!-- ACCOUNTS -->
+    <div id="view-accounts" class="view hidden">
+      <div class="seg scroll" id="periodSeg">
+        <button data-p="today" class="active">Today</button>
+        <button data-p="yesterday">Yesterday</button>
+        <button data-p="week">7 Days</button>
+        <button data-p="month">This Month</button>
+        <button data-p="custom">Custom</button>
+      </div>
+      <div id="customRange" class="row hidden">
+        <input type="date" id="fromDate">
+        <input type="date" id="toDate">
+        <button class="btn" id="applyRange">Go</button>
+      </div>
+
+      <div id="stats" class="stats"></div>
+
+      <h3>Expenses</h3>
+      <form id="expenseForm" class="row">
+        <input id="expTitle" placeholder="e.g. Oil, gas, rent" required>
+        <input id="expAmount" type="number" inputmode="decimal" placeholder="Amount" required min="0" step="any" class="narrow">
+        <button class="btn primary">Add</button>
+      </form>
+      <div id="expenseList" class="list"></div>
+
+      <h3>Top selling items</h3>
+      <div id="topItems" class="list"></div>
+
+      <h3 class="row between">Bills <button class="btn small" id="exportCsv">⬇ Download CSV</button></h3>
+      <div id="billList" class="list"></div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div id="view-settings" class="view hidden">
+      <form id="settingsForm" class="stack">
+        <label>Shop name <input id="setName" required></label>
+        <label>Shop phone <input id="setPhone" type="tel"></label>
+        <label>Address <input id="setAddress"></label>
+        <div class="row">
+          <label>Currency <input id="setCurrency" class="narrow"></label>
+          <label>Country code <input id="setCountry" inputmode="numeric" class="narrow"></label>
+        </div>
+        <label>Bill footer message <input id="setFooter"></label>
+        <button class="btn primary big">Save settings</button>
+      </form>
+      <p class="muted center" id="accountEmail"></p>
+      <button class="btn big danger-outline" id="logoutBtn">Logout</button>
+    </div>
+  </main>
+
+  <nav class="bottomnav">
+    <button data-view="sell" class="active">🛒<span>Sell</span></button>
+    <button data-view="items">📦<span>Items</span></button>
+    <button data-view="accounts">📊<span>Accounts</span></button>
+    <button data-view="settings">⚙️<span>Settings</span></button>
+  </nav>
+</section>
+
+<!-- ============ MODALS ============ -->
+
+<!-- Add / edit item -->
+<div id="itemModal" class="modal hidden">
+  <form class="sheet" id="itemForm">
+    <div class="sheet-head"><h2 id="itemModalTitle">Add item</h2><button type="button" class="x" data-close>✕</button></div>
+    <label class="photo-pick">
+      <img id="itemPhotoPreview" alt="">
+      <span id="itemPhotoHint">📸 Tap to add photo</span>
+      <input id="itemPhoto" type="file" accept="image/*" hidden>
+    </label>
+    <label>Item name <input id="itemName" required placeholder="e.g. Samosa"></label>
+    <div class="row">
+      <label>Sale price <input id="itemPrice" type="number" inputmode="decimal" min="0" step="any" required></label>
+      <label>Cost price <small>(optional)</small><input id="itemCost" type="number" inputmode="decimal" min="0" step="any"></label>
+    </div>
+    <label>Barcode
+      <div class="row">
+        <input id="itemBarcode" placeholder="Scan or type">
+        <button type="button" class="btn icon" id="itemScanBtn" title="Scan">📷</button>
+        <button type="button" class="btn small" id="genBarcodeBtn">Make new</button>
+      </div>
+    </label>
+    <div id="barcodeBox" class="barcode-box hidden">
+      <svg id="barcodeSvg"></svg>
+      <button type="button" class="btn small" id="printLabelBtn">🖨 Print label</button>
+    </div>
+    <div class="row">
+      <button type="button" class="btn danger-outline hidden" id="deleteItemBtn">Delete</button>
+      <button class="btn primary big grow">Save item</button>
+    </div>
+  </form>
+</div>
+
+<!-- Quantity -->
+<div id="qtyModal" class="modal hidden">
+  <div class="sheet small">
+    <div class="sheet-head"><h2 id="qtyTitle">Quantity</h2><button class="x" data-close>✕</button></div>
+    <input id="qtyInput" type="number" inputmode="numeric" min="0" class="qty-big">
+    <div class="quick" id="qtyQuick">
+      <button>1</button><button>2</button><button>3</button><button>4</button><button>5</button>
+      <button>6</button><button>10</button><button>12</button><button>20</button><button>50</button>
+    </div>
+    <button class="btn primary big" id="qtyOk">Set quantity</button>
+  </div>
+</div>
+
+<!-- Checkout -->
+<div id="checkoutModal" class="modal hidden">
+  <div class="sheet">
+    <div class="sheet-head"><h2>Bill</h2><button class="x" data-close>✕</button></div>
+    <div id="cartLines" class="list"></div>
+    <div class="row between"><span>Subtotal</span><b id="coSubtotal"></b></div>
+    <label class="row between"><span>Discount</span><input id="coDiscount" type="number" inputmode="decimal" min="0" step="any" value="0" class="narrow"></label>
+    <div class="row between grand"><span>TOTAL</span><b id="coTotal"></b></div>
+
+    <div class="seg" id="paySeg">
+      <button data-pay="cash" class="active">💵 Cash</button>
+      <button data-pay="transfer">🏦 Transfer</button>
+    </div>
+    <div id="cashBox">
+      <label class="row between"><span>Cash received</span><input id="coReceived" type="number" inputmode="decimal" min="0" step="any" class="narrow"></label>
+      <div class="row between"><span>Change to give</span><b id="coChange">–</b></div>
+    </div>
+    <div id="transferBox" class="hidden">
+      <input id="coRef" placeholder="Transfer ref / app name (optional)">
+    </div>
+
+    <input id="coPhone" type="tel" inputmode="tel" placeholder="Customer WhatsApp no. (optional) e.g. 03001234567">
+    <div class="row">
+      <button class="btn big grow" id="saveBtn">✔ Save</button>
+      <button class="btn big wa grow" id="saveWaBtn">Save + WhatsApp</button>
+    </div>
+  </div>
+</div>
+
+<!-- Bill / receipt -->
+<div id="billModal" class="modal hidden">
+  <div class="sheet">
+    <div class="sheet-head"><h2>Receipt</h2><button class="x" data-close>✕</button></div>
+    <pre id="billText" class="receipt"></pre>
+    <input id="billPhone" type="tel" inputmode="tel" placeholder="Customer WhatsApp no.">
+    <div class="row wrap">
+      <button class="btn wa grow" id="billWaBtn">Send on WhatsApp</button>
+      <button class="btn grow" id="billPrintBtn">🖨 Print</button>
+    </div>
+    <div class="row">
+      <button class="btn danger-outline hidden" id="billDeleteBtn">Delete bill</button>
+      <button class="btn primary big grow" data-close>Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- Scanner -->
+<div id="scanModal" class="modal hidden">
+  <div class="sheet">
+    <div class="sheet-head"><h2>Scan barcode</h2><button class="x" id="scanClose">✕</button></div>
+    <div id="reader"></div>
+    <p id="scanMsg" class="center muted">Point camera at barcode</p>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+</body>
+</html>
