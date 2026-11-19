@@ -1,4 +1,4 @@
-// Dukaan POS — simple point-of-sale for small snack sellers
+// Magey Fihaara — simple point-of-sale for small snack sellers (MVR)
 // Firebase Auth + Firestore (works offline, syncs when internet returns)
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
@@ -21,8 +21,8 @@ const db = initializeFirestore(fbApp, {
 
 // ---------------- State ----------------
 const DEFAULT_SHOP = {
-  name: "My Shop", phone: "", address: "",
-  currency: "Rs", country: "92", footer: "Thank you! Come again 🙏"
+  name: "Magey Fihaara", phone: "", address: "",
+  country: "960", footer: "Thank you! Come again 🙏"
 };
 const S = {
   uid: null,
@@ -45,7 +45,8 @@ const $$ = (s) => [...document.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const num = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
-const money = (n) => `${S.shop.currency} ${num(n)}`;
+const CURRENCY = "MVR";
+const money = (n) => `${CURRENCY} ${num(n)}`;
 const col = (name) => collection(db, "shops", S.uid, name);
 const pad = (n) => String(n).padStart(2, "0");
 const fmtDateTime = (d) =>
@@ -80,12 +81,13 @@ function beep() {
   navigator.vibrate?.(60);
 }
 
-// Pakistani style 03xx -> 923xx; keeps numbers that already have a country code
+// Maldives: 7-digit local number (e.g. 7771234) -> 9607771234; keeps numbers that already have a country code
 function normalizePhone(p) {
   let d = String(p || "").replace(/\D/g, "");
   if (!d) return "";
   if (d.startsWith("00")) d = d.slice(2);
-  else if (d.startsWith("0")) d = (S.shop.country || "92") + d.slice(1);
+  else if (d.startsWith("0")) d = (S.shop.country || "960") + d.slice(1);
+  else if (d.length === 7) d = (S.shop.country || "960") + d;
   return d;
 }
 function waUrl(phone, text) {
@@ -698,18 +700,16 @@ function fillSettings() {
   $("#setName").value = S.shop.name;
   $("#setPhone").value = S.shop.phone;
   $("#setAddress").value = S.shop.address;
-  $("#setCurrency").value = S.shop.currency;
   $("#setCountry").value = S.shop.country;
   $("#setFooter").value = S.shop.footer;
 }
 $("#settingsForm").addEventListener("submit", (e) => {
   e.preventDefault();
   S.shop = {
-    name: $("#setName").value.trim() || "My Shop",
+    name: $("#setName").value.trim() || "Magey Fihaara",
     phone: $("#setPhone").value.trim(),
     address: $("#setAddress").value.trim(),
-    currency: $("#setCurrency").value.trim() || "Rs",
-    country: $("#setCountry").value.replace(/\D/g, "") || "92",
+    country: $("#setCountry").value.replace(/\D/g, "") || "960",
     footer: $("#setFooter").value.trim(),
   };
   setDoc(doc(db, "shops", S.uid), S.shop, { merge: true }).catch(fail);

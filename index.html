@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#e8590c">
-  <title>Dukaan POS</title>
+  <title>Magey Fihaara</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" href="icons/icon.svg">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
@@ -20,7 +20,7 @@
 <section id="login" class="hidden">
   <div class="login-box">
     <div class="logo">🥟</div>
-    <h1>Dukaan POS</h1>
+    <h1>Magey Fihaara</h1>
     <p class="muted">Simple billing for snack sellers</p>
     <form id="loginForm">
       <input id="email" type="email" placeholder="Email" required autocomplete="email">
@@ -35,7 +35,7 @@
 <!-- ============ APP ============ -->
 <section id="app" class="hidden">
   <header class="top">
-    <span id="shopTitle">My Shop</span>
+    <span id="shopTitle">Magey Fihaara</span>
     <span id="netStatus" class="pill hidden">Offline</span>
   </header>
 
@@ -51,7 +51,7 @@
       <div class="cartbar">
         <div class="cartinfo">
           <span id="cartCount">0 items</span>
-          <b id="cartTotal">Rs 0</b>
+          <b id="cartTotal">MVR 0</b>
         </div>
         <button class="btn" id="clearCartBtn">Clear</button>
         <button class="btn primary" id="checkoutBtn">Bill ▸</button>
@@ -87,7 +87,7 @@
       <h3>Expenses</h3>
       <form id="expenseForm" class="row">
         <input id="expTitle" placeholder="e.g. Oil, gas, rent" required>
-        <input id="expAmount" type="number" inputmode="decimal" placeholder="Amount" required min="0" step="any" class="narrow">
+        <input id="expAmount" type="number" inputmode="decimal" placeholder="MVR" required min="0" step="any" class="narrow">
         <button class="btn primary">Add</button>
       </form>
       <div id="expenseList" class="list"></div>
@@ -105,10 +105,7 @@
         <label>Shop name <input id="setName" required></label>
         <label>Shop phone <input id="setPhone" type="tel"></label>
         <label>Address <input id="setAddress"></label>
-        <div class="row">
-          <label>Currency <input id="setCurrency" class="narrow"></label>
-          <label>Country code <input id="setCountry" inputmode="numeric" class="narrow"></label>
-        </div>
+        <label>Country code (Maldives = 960) <input id="setCountry" inputmode="numeric"></label>
         <label>Bill footer message <input id="setFooter"></label>
         <button class="btn primary big">Save settings</button>
       </form>
@@ -138,8 +135,8 @@
     </label>
     <label>Item name <input id="itemName" required placeholder="e.g. Samosa"></label>
     <div class="row">
-      <label>Sale price <input id="itemPrice" type="number" inputmode="decimal" min="0" step="any" required></label>
-      <label>Cost price <small>(optional)</small><input id="itemCost" type="number" inputmode="decimal" min="0" step="any"></label>
+      <label>Sale price (MVR) <input id="itemPrice" type="number" inputmode="decimal" min="0" step="any" required></label>
+      <label>Cost price (MVR) <small>(optional)</small><input id="itemCost" type="number" inputmode="decimal" min="0" step="any"></label>
     </div>
     <label>Barcode
       <div class="row">
@@ -193,7 +190,7 @@
       <input id="coRef" placeholder="Transfer ref / app name (optional)">
     </div>
 
-    <input id="coPhone" type="tel" inputmode="tel" placeholder="Customer WhatsApp no. (optional) e.g. 03001234567">
+    <input id="coPhone" type="tel" inputmode="tel" placeholder="Customer WhatsApp no. (optional) e.g. 7771234">
     <div class="row">
       <button class="btn big grow" id="saveBtn">✔ Save</button>
       <button class="btn big wa grow" id="saveWaBtn">Save + WhatsApp</button>
@@ -206,7 +203,7 @@
   <div class="sheet">
     <div class="sheet-head"><h2>Receipt</h2><button class="x" data-close>✕</button></div>
     <pre id="billText" class="receipt"></pre>
-    <input id="billPhone" type="tel" inputmode="tel" placeholder="Customer WhatsApp no.">
+    <input id="billPhone" type="tel" inputmode="tel" placeholder="Customer WhatsApp no. e.g. 7771234">
     <div class="row wrap">
       <button class="btn wa grow" id="billWaBtn">Send on WhatsApp</button>
       <button class="btn grow" id="billPrintBtn">🖨 Print</button>

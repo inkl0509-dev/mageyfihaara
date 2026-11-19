@@ -1,4 +1,6 @@
-# 🥟 Dukaan POS — billing app for small snack sellers
+# 🥟 Magey Fihaara — billing app for small snack sellers
+
+All prices, bills and accounts are in **MVR (Maldivian Rufiyaa)**.
 
 A phone app for selling samosas, rolls, chai and other snacks. It runs in the phone's browser and can be added to the home screen. It uses **Firebase** for login and data, the code lives on **GitHub**, and it is hosted on **Vercel** for free.
 
@@ -6,7 +8,7 @@ A phone app for selling samosas, rolls, chai and other snacks. It runs in the ph
 - **Items**: add name, sale price, cost price, photo and barcode. You can scan an existing barcode or make a new one and print labels.
 - **Sell screen**: shows item photos. Tap an item to add 1. Hold an item to type a quantity. You can also search by name, scan with the camera (scanning many items in a row works), or use a USB/Bluetooth barcode gun.
 - **Bill**: change quantities with + and −, add a discount, see the total, and choose **Cash** (it works out the change) or **Transfer** (with an optional reference).
-- **WhatsApp bill**: send the receipt to the customer's number (for example 03001234567 becomes 923001234567). Bills can also be printed on a 58 mm printer.
+- **WhatsApp bill**: send the receipt to the customer's number (type the 7-digit Maldives number, e.g. 7771234, and it becomes 9607771234). Bills can also be printed on a 58 mm printer.
 - **Accounts**: choose Today, Yesterday, 7 days, This month or your own dates. It shows total sales, number of bills, cash vs transfer, discounts, cost, expenses, gross profit, net profit, top items and the list of bills. You can open any bill to resend it or delete it, and download a CSV file for Excel.
 - **Works offline**: sales are saved on the phone and sync when the internet comes back.
 - **Login per shop**: each seller sees only their own data.
@@ -26,16 +28,16 @@ A phone app for selling samosas, rolls, chai and other snacks. It runs in the ph
 ```bash
 git init
 git add .
-git commit -m "Dukaan POS"
+git commit -m "Magey Fihaara"
 git branch -M main
-git remote add origin https://github.com/YOUR_NAME/dukaan-pos.git
+git remote add origin https://github.com/YOUR_NAME/magey-fihaara.git
 git push -u origin main
 ```
 
 ### 3. Vercel
-1. Go to https://vercel.com, sign in with GitHub, click **Add New → Project** and import `dukaan-pos`.
+1. Go to https://vercel.com, sign in with GitHub, click **Add New → Project** and import `magey-fihaara`.
 2. Set Framework Preset to **Other**. No build command is needed. Click **Deploy**.
-3. Copy your link, for example `dukaan-pos.vercel.app`.
+3. Copy your link, for example `magey-fihaara.vercel.app`.
 4. Back in Firebase, open **Authentication → Settings → Authorized domains** and add that domain.
 
 Every `git push` updates the live app automatically.
