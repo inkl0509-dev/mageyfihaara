@@ -1,1 +1,32 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="110" fill="#e8590c"/><path d="M96 330 L256 130 L416 330 Z" fill="#ffd8a8"/><rect x="96" y="330" width="320" height="50" rx="20" fill="#fff"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#e8590c"/>
+  <!-- sign board -->
+  <rect x="150" y="96" width="212" height="54" rx="12" fill="#7c2d12"/>
+  <circle cx="200" cy="123" r="9" fill="#ffd8a8"/><circle cx="256" cy="123" r="9" fill="#ffd8a8"/><circle cx="312" cy="123" r="9" fill="#ffd8a8"/>
+  <!-- shop body -->
+  <rect x="132" y="200" width="248" height="200" fill="#fff4e6"/>
+  <!-- window -->
+  <rect x="160" y="244" width="192" height="92" rx="8" fill="#5c2a0e"/>
+  <!-- snacks on counter -->
+  <rect x="180" y="300" width="34" height="36" rx="6" fill="#fcc419"/>
+  <rect x="226" y="290" width="34" height="46" rx="6" fill="#ff8787"/>
+  <path d="M272 336 L306 336 L289 298 Z" fill="#ffa94d"/>
+  <rect x="314" y="304" width="24" height="32" rx="5" fill="#69db7c"/>
+  <!-- counter -->
+  <rect x="146" y="336" width="220" height="18" rx="4" fill="#a0522d"/>
+  <!-- awning stripes -->
+  <g>
+    <rect x="112" y="150" width="48" height="62" fill="#e03131"/>
+    <rect x="160" y="150" width="48" height="62" fill="#ffffff"/>
+    <rect x="208" y="150" width="48" height="62" fill="#e03131"/>
+    <rect x="256" y="150" width="48" height="62" fill="#ffffff"/>
+    <rect x="304" y="150" width="48" height="62" fill="#e03131"/>
+    <rect x="352" y="150" width="48" height="62" fill="#ffffff"/>
+  </g>
+  <!-- awning scallops -->
+  <circle cx="136" cy="212" r="24" fill="#e03131"/><circle cx="184" cy="212" r="24" fill="#ffffff"/>
+  <circle cx="232" cy="212" r="24" fill="#e03131"/><circle cx="280" cy="212" r="24" fill="#ffffff"/>
+  <circle cx="328" cy="212" r="24" fill="#e03131"/><circle cx="376" cy="212" r="24" fill="#ffffff"/>
+  <!-- base -->
+  <rect x="116" y="398" width="280" height="22" rx="8" fill="#7c2d12"/>
+</svg>
