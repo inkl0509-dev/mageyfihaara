@@ -44,11 +44,15 @@ git push -u origin main
 
 Every `git push` updates the live app automatically.
 
-### 4. Make yourself the admin (one time)
-1. Open the app and **Create new account** with your own email. It will ask for a shop code. Leave it there.
-2. In Firebase Console open **Authentication → Users** and copy your **User UID**.
-3. Open **Firestore Database → Start collection**. Set the Collection ID to `admins` and the Document ID to *your User UID*. Add any field, for example `name` = `Admin`, then click **Save**.
-4. Reload the app. You will now see the **Admin** screen.
+### 4. Admin login (one time)
+The app owner is **iirufan@gmail.com**. Only this email can create shop codes.
+1. Open the app and press **Create new account** with `iirufan@gmail.com` and a password.
+2. The app shows **Verify admin email**. Press **Send verification link**.
+3. Open that Gmail inbox (check Spam), tap the link, then go back to the app and press **I clicked the link ✔**.
+4. The **Admin** screen opens. After this, logging in with that email always opens Admin.
+
+> Why verify? Anyone can type any email when signing up, so admin powers only switch on after Gmail proves the address is really yours.
+> To change the admin email, edit `ADMIN_EMAIL` in `app.js` **and** the email in `firestore.rules`, then publish the rules again.
 
 ### 5. Open a shop
 1. On the Admin screen, type the shop name and click **+ Create**. A code appears.

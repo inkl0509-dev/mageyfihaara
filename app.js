@@ -4,7 +4,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
-  createUserWithEmailAndPassword, signOut, sendPasswordResetEmail
+  createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, sendEmailVerification
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
@@ -12,6 +12,9 @@ import {
   onSnapshot, query, where, orderBy, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
+
+// App owner / admin. Must match ADMIN_EMAIL in firestore.rules
+const ADMIN_EMAIL = "iirufan@gmail.com";
 
 const fbApp = initializeApp(firebaseConfig);
 const auth = getAuth(fbApp);
@@ -127,7 +130,7 @@ $$("[data-logout]").forEach((b) => b.addEventListener("click", () => signOut(aut
 
 // ---------------- Screens / routing ----------------
 // login → (admin panel) or (enter shop code) → shop POS
-const SCREENS = ["#login", "#joinScreen", "#adminScreen", "#app"];
+const SCREENS = ["#login", "#verifyScreen", "#joinScreen", "#adminScreen", "#app"];
 function showScreen(id) { SCREENS.forEach((s) => $(s).classList.toggle("hidden", s !== id)); }
 
 function stopListeners() {
@@ -144,7 +147,12 @@ onAuthStateChanged(auth, async (user) => {
   $$(".whoami").forEach((el) => el.textContent = "Logged in as " + user.email);
 
   try {
-    // 1) Admin?
+    // 1) Admin? (owner email, must be verified so nobody can fake it)
+    if ((user.email || "").toLowerCase() === ADMIN_EMAIL) {
+      if (!user.emailVerified) { showVerify(); return; }
+      await user.getIdToken(true);       // refresh so the server sees "verified"
+      startAdmin(); return;
+    }
     const adm = await getDoc(doc(db, "admins", user.uid));
     if (adm.exists()) { startAdmin(); return; }
     // 2) Already joined a shop?
@@ -155,6 +163,25 @@ onAuthStateChanged(auth, async (user) => {
   } catch (e) {
     showJoin("Could not connect. Check internet and try again. (" + (e.code || e.message) + ")");
   }
+});
+
+// ---------------- Admin email verification ----------------
+function showVerify() {
+  $("#verifyMsg").textContent = "";
+  showScreen("#verifyScreen");
+}
+$("#sendVerifyBtn").addEventListener("click", async () => {
+  try {
+    await sendEmailVerification(auth.currentUser);
+    $("#verifyMsg").textContent = `✅ Link sent to ${auth.currentUser.email}. Open your Gmail and tap the link (check Spam too).`;
+  } catch (e) { $("#verifyMsg").textContent = "❌ " + (e.code || e.message); }
+});
+$("#verifiedBtn").addEventListener("click", async () => {
+  const u = auth.currentUser;
+  await u.reload();
+  if (!u.emailVerified) { $("#verifyMsg").textContent = "Not verified yet. Tap the link in your email first."; return; }
+  await u.getIdToken(true);
+  startAdmin();
 });
 
 // ---------------- Join a shop with a code ----------------

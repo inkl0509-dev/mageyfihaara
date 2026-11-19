@@ -3,7 +3,13 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() { return request.auth != null; }
-    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+    // App owner: iirufan@gmail.com (email must be verified), or anyone added by hand to /admins
+    function isAdmin() {
+      return signedIn() && (
+        (request.auth.token.email == 'iirufan@gmail.com' && request.auth.token.email_verified == true)
+        || exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
 
     // A user belongs to a shop only if their users/{uid} doc says so AND the shop is turned on
     function isMember(shopId) {

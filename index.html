@@ -19,7 +19,7 @@
 <!-- ============ LOGIN ============ -->
 <section id="login" class="hidden">
   <div class="login-box">
-    <div class="logo">🥟</div>
+    <img src="icons/icon.svg" alt="" class="logo-img">
     <h1>Magey Fihaara</h1>
     <p class="muted">Simple billing for snack sellers</p>
     <form id="loginForm">
@@ -29,6 +29,20 @@
       <button class="btn big" type="button" id="signupBtn">Create new account</button>
       <button class="link" type="button" id="resetBtn">Forgot password?</button>
     </form>
+  </div>
+</section>
+
+<!-- ============ ADMIN EMAIL VERIFY ============ -->
+<section id="verifyScreen" class="hidden">
+  <div class="login-box">
+    <div class="logo">🛡️</div>
+    <h1>Verify admin email</h1>
+    <p class="muted">For safety, the owner email must be verified once before you can create shop codes.</p>
+    <button class="btn primary big" id="sendVerifyBtn">1. Send verification link</button>
+    <button class="btn big" id="verifiedBtn" style="margin-top:10px">2. I clicked the link ✔</button>
+    <p id="verifyMsg" class="join-msg"></p>
+    <p class="muted whoami"></p>
+    <button class="link" type="button" data-logout>Logout</button>
   </div>
 </section>
 
