@@ -32,6 +32,38 @@
   </div>
 </section>
 
+<!-- ============ ENTER SHOP CODE ============ -->
+<section id="joinScreen" class="hidden">
+  <div class="login-box">
+    <div class="logo">🔑</div>
+    <h1>Enter shop code</h1>
+    <p class="muted">Ask the admin for your shop's code.<br>You only need to do this once.</p>
+    <form id="joinForm">
+      <input id="joinCode" class="code-input" placeholder="XXXX-XXXX" autocomplete="off" autocapitalize="characters" required>
+      <button class="btn primary big">Open my shop</button>
+    </form>
+    <p id="joinMsg" class="join-msg"></p>
+    <button class="btn" type="button" onclick="location.reload()">↻ Try again</button>
+    <p class="muted whoami"></p>
+    <button class="link" type="button" data-logout>Logout</button>
+  </div>
+</section>
+
+<!-- ============ ADMIN ============ -->
+<section id="adminScreen" class="hidden">
+  <header class="top"><span>Magey Fihaara · Admin</span><span id="adminCount" class="pill"></span></header>
+  <main class="admin-main">
+    <form id="newShopForm" class="row">
+      <input id="newShopName" placeholder="New shop name, e.g. Ali's Hedhikaa" required>
+      <button class="btn primary">+ Create</button>
+    </form>
+    <p class="muted">Each shop gets a secret code. Send the code to the shop owner. Shops can never see each other's data. Admin can see shop names and codes only, not their sales.</p>
+    <div id="shopList" class="list"></div>
+    <p class="muted center whoami"></p>
+    <button class="btn big danger-outline" data-logout>Logout</button>
+  </main>
+</section>
+
 <!-- ============ APP ============ -->
 <section id="app" class="hidden">
   <header class="top">
@@ -46,7 +78,7 @@
         <input id="search" type="search" placeholder="Search item or type barcode…" autocomplete="off">
         <button class="btn icon" id="scanSellBtn" title="Scan barcode">📷</button>
       </div>
-      <p class="hint">Tap item = +1 &nbsp;·&nbsp; Hold item = type quantity</p>
+      <p class="hint">Tap item = +1 &nbsp;·&nbsp; Tap <b>🔢 Qty</b> = type how many (e.g. 20)</p>
       <div id="sellGrid" class="grid"></div>
       <div class="cartbar">
         <div class="cartinfo">
@@ -109,7 +141,7 @@
         <label>Bill footer message <input id="setFooter"></label>
         <button class="btn primary big">Save settings</button>
       </form>
-      <p class="muted center" id="accountEmail"></p>
+      <p class="muted center whoami"></p>
       <button class="btn big danger-outline" id="logoutBtn">Logout</button>
     </div>
   </main>
@@ -160,12 +192,18 @@
 <div id="qtyModal" class="modal hidden">
   <div class="sheet small">
     <div class="sheet-head"><h2 id="qtyTitle">Quantity</h2><button class="x" data-close>✕</button></div>
-    <input id="qtyInput" type="number" inputmode="numeric" min="0" class="qty-big">
+    <div class="qty-display"><span id="qtyValue">0</span><small id="qtyLineTotal"></small></div>
     <div class="quick" id="qtyQuick">
-      <button>1</button><button>2</button><button>3</button><button>4</button><button>5</button>
-      <button>6</button><button>10</button><button>12</button><button>20</button><button>50</button>
+      <button data-q="5">5</button><button data-q="10">10</button><button data-q="20">20</button>
+      <button data-q="50">50</button><button data-q="100">100</button>
     </div>
-    <button class="btn primary big" id="qtyOk">Set quantity</button>
+    <div class="keypad" id="qtyPad">
+      <button>1</button><button>2</button><button>3</button>
+      <button>4</button><button>5</button><button>6</button>
+      <button>7</button><button>8</button><button>9</button>
+      <button data-k="C" class="k-alt">C</button><button>0</button><button data-k="B" class="k-alt">⌫</button>
+    </div>
+    <button class="btn primary big" id="qtyOk">Add to bill</button>
   </div>
 </div>
 

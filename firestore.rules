@@ -1,11 +1,54 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Each shop owner can only read/write their own shop data
-    match /shops/{uid} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-      match /{document=**} {
-        allow read, write: if request.auth != null && request.auth.uid == uid;
+
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)); }
+
+    // A user belongs to a shop only if their users/{uid} doc says so AND the shop is turned on
+    function isMember(shopId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.shopId == shopId
+        && get(/databases/$(database)/documents/shops/$(shopId)).data.active == true;
+    }
+
+    // Admin list — created by hand in the Firebase console only
+    match /admins/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    // Shop codes — anyone logged in can check ONE code they typed, but nobody except admin can list them
+    match /codes/{code} {
+      allow get: if signedIn();
+      allow list, create, delete: if isAdmin();
+      allow update: if false;
+    }
+
+    // Which shop each user belongs to.
+    // A user can join a shop only by giving a code that really points to that shop.
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['shopId', 'code', 'email', 'joinedAt'])
+        && get(/databases/$(database)/documents/codes/$(request.resource.data.code)).data.shopId == request.resource.data.shopId;
+      allow update: if false;                // can't move yourself to another shop
+      allow delete: if isAdmin();            // admin removes a phone
+    }
+
+    match /shops/{shopId} {
+      allow get: if isAdmin() || isMember(shopId);
+      allow list, create, delete: if isAdmin();
+      // Admin can change anything; shop users can only change their own bill settings
+      allow update: if isAdmin() || (isMember(shopId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['name', 'phone', 'address', 'country', 'footer']));
+
+      // items, sales, expenses — ONLY that shop's users. Admin cannot read these.
+      match /{sub}/{docId} {
+        allow read, write: if isMember(shopId);
       }
     }
   }

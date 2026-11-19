@@ -9,7 +9,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
-  onSnapshot, query, where, orderBy, serverTimestamp
+  onSnapshot, query, where, orderBy, serverTimestamp, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -26,6 +26,8 @@ const DEFAULT_SHOP = {
 };
 const S = {
   uid: null,
+  shopId: null,
+  unsubAdmin: [],
   shop: { ...DEFAULT_SHOP },
   items: [],
   cart: new Map(),       // itemId -> qty
@@ -47,7 +49,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
 const num = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
 const CURRENCY = "MVR";
 const money = (n) => `${CURRENCY} ${num(n)}`;
-const col = (name) => collection(db, "shops", S.uid, name);
+const col = (name) => collection(db, "shops", S.shopId, name);
 const pad = (n) => String(n).padStart(2, "0");
 const fmtDateTime = (d) =>
   `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -121,32 +123,176 @@ $("#resetBtn").addEventListener("click", async () => {
 $("#logoutBtn").addEventListener("click", () => {
   if (confirm("Logout from this phone?")) signOut(auth);
 });
+$$("[data-logout]").forEach((b) => b.addEventListener("click", () => signOut(auth)));
+
+// ---------------- Screens / routing ----------------
+// login → (admin panel) or (enter shop code) → shop POS
+const SCREENS = ["#login", "#joinScreen", "#adminScreen", "#app"];
+function showScreen(id) { SCREENS.forEach((s) => $(s).classList.toggle("hidden", s !== id)); }
+
+function stopListeners() {
+  S.unsubItems?.(); S.unsubItems = null;
+  S.unsubAdmin.forEach((u) => u()); S.unsubAdmin = [];
+}
 
 onAuthStateChanged(auth, async (user) => {
-  S.unsubItems?.(); S.unsubItems = null;
-  if (!user) {
-    S.uid = null; S.items = []; S.cart.clear();
-    $("#app").classList.add("hidden");
-    $("#login").classList.remove("hidden");
-    return;
-  }
+  stopListeners();
+  S.items = []; S.cart.clear(); S.shopId = null;
+  if (!user) { S.uid = null; showScreen("#login"); return; }
   S.uid = user.uid;
-  $("#login").classList.add("hidden");
-  $("#app").classList.remove("hidden");
-  $("#accountEmail").textContent = "Logged in as " + user.email;
   updateNet();
+  $$(".whoami").forEach((el) => el.textContent = "Logged in as " + user.email);
 
   try {
-    const snap = await getDoc(doc(db, "shops", S.uid));
-    S.shop = { ...DEFAULT_SHOP, ...(snap.exists() ? snap.data() : {}) };
-  } catch { /* offline first time: keep defaults */ }
+    // 1) Admin?
+    const adm = await getDoc(doc(db, "admins", user.uid));
+    if (adm.exists()) { startAdmin(); return; }
+    // 2) Already joined a shop?
+    const me = await getDoc(doc(db, "users", user.uid));
+    if (me.exists()) { await startShop(me.data().shopId); return; }
+    // 3) New user → ask for shop code
+    showJoin("");
+  } catch (e) {
+    showJoin("Could not connect. Check internet and try again. (" + (e.code || e.message) + ")");
+  }
+});
+
+// ---------------- Join a shop with a code ----------------
+const cleanCode = (c) => String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+const prettyCode = (c) => c.length === 8 ? c.slice(0, 4) + "-" + c.slice(4) : c;
+
+function showJoin(msg) {
+  $("#joinMsg").textContent = msg || "";
+  $("#joinCode").value = "";
+  showScreen("#joinScreen");
+}
+$("#joinForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const code = cleanCode($("#joinCode").value);
+  if (code.length < 6) return toast("Enter the code from admin");
+  $("#joinMsg").textContent = "Checking…";
+  try {
+    const c = await getDoc(doc(db, "codes", code));
+    if (!c.exists()) { $("#joinMsg").textContent = "❌ Wrong code. Ask admin for the correct code."; return; }
+    const shopId = c.data().shopId;
+    await setDoc(doc(db, "users", S.uid), {
+      shopId, code, email: auth.currentUser.email || "", joinedAt: Date.now()
+    });
+    await startShop(shopId);
+    toast("Welcome! ✔");
+  } catch (err) {
+    $("#joinMsg").textContent = "❌ Could not join: " + (err.code || err.message);
+  }
+});
+
+async function startShop(shopId) {
+  S.shopId = shopId;
+  let snap;
+  try { snap = await getDoc(doc(db, "shops", shopId)); }
+  catch {
+    showJoin("⛔ This shop is turned off or this phone was removed. Contact admin.");
+    return;
+  }
+  if (!snap.exists()) { showJoin("⛔ Shop not found. Contact admin."); return; }
+  S.shop = { ...DEFAULT_SHOP, ...snap.data() };
+  showScreen("#app");
   applyShop();
 
   S.unsubItems = onSnapshot(query(col("items"), orderBy("name")), (snap) => {
     S.items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     for (const id of [...S.cart.keys()]) if (!S.items.find((i) => i.id === id)) S.cart.delete(id);
     renderSellGrid(); renderItemList(); renderCartBar();
-  }, fail);
+  }, (e) => {
+    if (e.code === "permission-denied") showJoin("⛔ This shop is turned off or this phone was removed. Contact admin.");
+    else fail(e);
+  });
+}
+
+// ---------------- ADMIN ----------------
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I to avoid confusion
+function newCode() {
+  const r = crypto.getRandomValues(new Uint32Array(8));
+  return [...r].map((n) => CODE_CHARS[n % CODE_CHARS.length]).join("");
+}
+const A = { shops: [], users: [] };
+
+function startAdmin() {
+  showScreen("#adminScreen");
+  S.unsubAdmin.push(onSnapshot(query(collection(db, "shops"), orderBy("createdAtMs", "desc")), (snap) => {
+    A.shops = snap.docs.map((d) => ({ id: d.id, ...d.data() })); renderAdmin();
+  }, fail));
+  S.unsubAdmin.push(onSnapshot(collection(db, "users"), (snap) => {
+    A.users = snap.docs.map((d) => ({ id: d.id, ...d.data() })); renderAdmin();
+  }, fail));
+}
+
+function renderAdmin() {
+  $("#adminCount").textContent = `${A.shops.length} shop${A.shops.length === 1 ? "" : "s"}`;
+  $("#shopList").innerHTML = A.shops.length ? A.shops.map((sh) => {
+    const members = A.users.filter((u) => u.shopId === sh.id);
+    return `<div class="shopcard ${sh.active ? "" : "off"}" data-id="${sh.id}">
+      <div class="row between">
+        <b class="grow">${esc(sh.name)}</b>
+        <span class="tag ${sh.active ? "cash" : "offtag"}">${sh.active ? "Active" : "Turned off"}</span>
+      </div>
+      <div class="code">${prettyCode(esc(sh.code))}</div>
+      <div class="row wrap">
+        <button class="btn small wa" data-a="share">Share code</button>
+        <button class="btn small" data-a="copy">Copy</button>
+        <button class="btn small" data-a="regen">New code</button>
+        <button class="btn small ${sh.active ? "danger-outline" : ""}" data-a="toggle">${sh.active ? "Turn off" : "Turn on"}</button>
+      </div>
+      <div class="muted">📱 ${members.length} phone${members.length === 1 ? "" : "s"} logged in</div>
+      ${members.map((u) => `<div class="member"><span class="grow">${esc(u.email || u.id)}</span>
+        <button class="x" data-a="kick" data-uid="${u.id}" title="Remove">✕</button></div>`).join("")}
+    </div>`;
+  }).join("") : `<div class="empty">No shops yet. Create the first one above.</div>`;
+}
+
+$("#newShopForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const name = $("#newShopName").value.trim(); if (!name) return;
+  const code = newCode();
+  const shopRef = doc(collection(db, "shops"));
+  const b = writeBatch(db);
+  b.set(shopRef, { ...DEFAULT_SHOP, name, code, active: true, createdAtMs: Date.now() });
+  b.set(doc(db, "codes", code), { shopId: shopRef.id, createdAtMs: Date.now() });
+  try { await b.commit(); $("#newShopName").value = ""; toast(`Shop created. Code: ${prettyCode(code)}`); }
+  catch (err) { fail(err); }
+});
+
+$("#shopList").addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-a]"); if (!btn) return;
+  const sh = A.shops.find((x) => x.id === btn.closest(".shopcard").dataset.id); if (!sh) return;
+  const msg = `Your *Magey Fihaara* shop code for "${sh.name}":\n\n*${prettyCode(sh.code)}*\n\n1. Open ${location.origin}\n2. Create account / login\n3. Enter this code`;
+  try {
+    switch (btn.dataset.a) {
+      case "share": window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank"); break;
+      case "copy": await navigator.clipboard.writeText(prettyCode(sh.code)); toast("Code copied"); break;
+      case "toggle":
+        if (sh.active && !confirm(`Turn off "${sh.name}"? Its phones will stop working until you turn it on.`)) return;
+        await updateDoc(doc(db, "shops", sh.id), { active: !sh.active });
+        break;
+      case "regen": {
+        if (!confirm("Make a new code? The old code will stop working for NEW phones. Phones already logged in keep working.")) return;
+        const code = newCode();
+        const b = writeBatch(db);
+        b.delete(doc(db, "codes", sh.code));
+        b.set(doc(db, "codes", code), { shopId: sh.id, createdAtMs: Date.now() });
+        b.update(doc(db, "shops", sh.id), { code });
+        await b.commit();
+        toast("New code: " + prettyCode(code));
+        break;
+      }
+      case "kick": {
+        const u = A.users.find((x) => x.id === btn.dataset.uid);
+        if (!confirm(`Remove ${u?.email || "this phone"} from "${sh.name}"?`)) return;
+        await deleteDoc(doc(db, "users", btn.dataset.uid));
+        toast("Removed");
+        break;
+      }
+    }
+  } catch (err) { fail(err); }
 });
 
 // ---------------- Navigation ----------------
@@ -182,6 +328,7 @@ function renderSellGrid() {
       ${i.photo ? `<img src="${i.photo}" alt="">` : `<div class="noimg">${esc(i.name.slice(0, 2).toUpperCase())}</div>`}
       <div class="nm">${esc(i.name)}</div>
       <div class="pr">${money(i.price)}</div>
+      <button class="qtybtn" type="button">🔢 Qty</button>
     </div>`;
   }).join("");
 }
@@ -208,11 +355,11 @@ function renderCartBar() {
   $("#cartTotal").textContent = money(cartSubtotal());
 }
 
-// tap = +1, long-press = type quantity
+// tap = +1, "Qty" button or long-press = type quantity
 const grid = $("#sellGrid");
 const lp = { t: null, fired: false };
 grid.addEventListener("pointerdown", (e) => {
-  const card = e.target.closest(".card"); if (!card) return;
+  const card = e.target.closest(".card"); if (!card || e.target.closest(".qtybtn")) return;
   lp.fired = false; clearTimeout(lp.t);
   lp.t = setTimeout(() => { lp.fired = true; openQty(card.dataset.id); }, 550);
 });
@@ -221,6 +368,7 @@ grid.addEventListener("pointerdown", (e) => {
 grid.addEventListener("contextmenu", (e) => e.preventDefault());
 grid.addEventListener("click", (e) => {
   const card = e.target.closest(".card"); if (!card) return;
+  if (e.target.closest(".qtybtn")) { openQty(card.dataset.id); return; }
   if (lp.fired) { lp.fired = false; return; }
   addToCart(card.dataset.id);
 });
@@ -248,21 +396,50 @@ $("#clearCartBtn").addEventListener("click", () => {
   if (S.cart.size && confirm("Clear this bill?")) { S.cart.clear(); renderSellGrid(); renderCartBar(); }
 });
 
-// Quantity modal
+// Quantity number pad: type how many of this item are in the bill
+const qp = { value: "", fresh: true };
+function showQty() {
+  const it = S.items.find((i) => i.id === S.qtyItemId);
+  const n = Number(qp.value) || 0;
+  $("#qtyValue").textContent = n;
+  $("#qtyLineTotal").textContent = it ? `${n} × ${num(it.price)} = ${money(n * it.price)}` : "";
+}
 function openQty(id) {
   const it = S.items.find((i) => i.id === id); if (!it) return;
   S.qtyItemId = id;
   $("#qtyTitle").textContent = it.name;
-  $("#qtyInput").value = S.cart.get(id) || "";
+  qp.value = String(S.cart.get(id) || "");
+  qp.fresh = true;   // first key press replaces the old number
+  showQty();
   openModal("#qtyModal");
-  setTimeout(() => $("#qtyInput").focus(), 50);
 }
-$("#qtyQuick").addEventListener("click", (e) => {
-  if (e.target.tagName === "BUTTON") $("#qtyInput").value = e.target.textContent;
+$("#qtyPad").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  const k = b.dataset.k;
+  if (k === "C") qp.value = "";
+  else if (k === "B") qp.value = qp.fresh ? "" : qp.value.slice(0, -1);
+  else { qp.value = (qp.fresh ? "" : qp.value) + b.textContent; qp.value = qp.value.replace(/^0+(?=\d)/, "").slice(0, 5); }
+  qp.fresh = false;
+  showQty();
 });
-const confirmQty = () => { setQty(S.qtyItemId, $("#qtyInput").value); $("#qtyModal").classList.add("hidden"); };
+$("#qtyQuick").addEventListener("click", (e) => {
+  const b = e.target.closest("button"); if (!b) return;
+  qp.value = b.dataset.q; qp.fresh = true; showQty();
+});
+const confirmQty = () => {
+  setQty(S.qtyItemId, qp.value);
+  $("#qtyModal").classList.add("hidden");
+  const it = S.items.find((i) => i.id === S.qtyItemId);
+  if (it) toast(`${Number(qp.value) || 0} × ${it.name}`);
+};
 $("#qtyOk").addEventListener("click", confirmQty);
-$("#qtyInput").addEventListener("keydown", (e) => { if (e.key === "Enter") confirmQty(); });
+// Typing numbers on a keyboard also works (tablet / laptop)
+document.addEventListener("keydown", (e) => {
+  if ($("#qtyModal").classList.contains("hidden")) return;
+  if (/^\d$/.test(e.key)) { qp.value = ((qp.fresh ? "" : qp.value) + e.key).replace(/^0+(?=\d)/, "").slice(0, 5); qp.fresh = false; showQty(); }
+  else if (e.key === "Backspace") { qp.value = qp.value.slice(0, -1); qp.fresh = false; showQty(); }
+  else if (e.key === "Enter") confirmQty();
+});
 
 // ---------------- CHECKOUT ----------------
 $("#checkoutBtn").addEventListener("click", () => {
@@ -589,7 +766,7 @@ $("#periodSeg").addEventListener("click", (e) => {
 $("#applyRange").addEventListener("click", loadAccounts);
 
 async function loadAccounts() {
-  if (!S.uid) return;
+  if (!S.shopId) return;
   const [from, to] = periodRange().map((d) => d.getTime());
   const rangeQ = (name) => query(col(name), where("createdAtMs", ">=", from), where("createdAtMs", "<", to), orderBy("createdAtMs", "desc"));
   let sales = [], expenses = [];
@@ -705,14 +882,15 @@ function fillSettings() {
 }
 $("#settingsForm").addEventListener("submit", (e) => {
   e.preventDefault();
-  S.shop = {
+  const changes = {
     name: $("#setName").value.trim() || "Magey Fihaara",
     phone: $("#setPhone").value.trim(),
     address: $("#setAddress").value.trim(),
     country: $("#setCountry").value.replace(/\D/g, "") || "960",
     footer: $("#setFooter").value.trim(),
   };
-  setDoc(doc(db, "shops", S.uid), S.shop, { merge: true }).catch(fail);
+  S.shop = { ...S.shop, ...changes };
+  updateDoc(doc(db, "shops", S.shopId), changes).catch(fail);
   applyShop();
   toast("Settings saved ✔");
 });
