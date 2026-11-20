@@ -111,7 +111,7 @@
     <!-- ITEMS -->
     <div id="view-items" class="view hidden">
       <div class="searchbar">
-        <input id="itemSearch" type="search" placeholder="Search items…" autocomplete="off">
+        <input id="itemSearch" type="search" placeholder="Search items…" data-i18n-ph="searchItems" autocomplete="off">
         <button class="btn primary" id="addItemBtn">+ <span data-i18n="add">Add</span></button>
       </div>
       <div id="itemList" class="list"></div>
@@ -136,27 +136,28 @@
 
       <h3 data-i18n="expenses">Expenses</h3>
       <form id="expenseForm" class="row">
-        <input id="expTitle" placeholder="e.g. Oil, gas, rent" required>
-        <input id="expAmount" type="number" inputmode="decimal" placeholder="MVR" required min="0" step="any" class="narrow">
+        <input id="expTitle" placeholder="e.g. Oil, gas, rent" data-i18n-ph="expPh" required>
+        <input id="expAmount" type="number" inputmode="decimal" placeholder="MVR" data-i18n-ph="mvr" required min="0" step="any" class="narrow">
         <button class="btn primary" data-i18n="add">Add</button>
       </form>
       <div id="expenseList" class="list"></div>
 
-      <h3>Top selling items</h3>
+      <h3 data-i18n="topItems">Top selling items</h3>
       <div id="topItems" class="list"></div>
 
-      <h3 class="row between">Bills <button class="btn small" id="exportCsv">⬇ Download CSV</button></h3>
+      <h3 class="row between"><span data-i18n="bills">Bills</span> <button class="btn small" id="exportCsv">⬇ <span data-i18n="downloadCsv">Download CSV</span></button></h3>
       <div id="billList" class="list"></div>
     </div>
 
     <!-- SETTINGS -->
     <div id="view-settings" class="view hidden">
       <form id="settingsForm" class="stack">
-        <label>Shop name <input id="setName" required></label>
-        <label>Shop phone <input id="setPhone" type="tel"></label>
-        <label>Address <input id="setAddress"></label>
+        <label><span data-i18n="shopName">Shop name</span> <input id="setName" required placeholder="Hedhikaa Shop" data-i18n-ph="shopNamePh"></label>
+        <label><span data-i18n="shopPhone">Shop phone</span> <input id="setPhone" type="tel"></label>
+        <label><span data-i18n="address">Address</span> <input id="setAddress"></label>
         <label><span data-i18n="country">Country code (Maldives = 960)</span> <input id="setCountry" inputmode="numeric"></label>
-        <label>Bill footer message <input id="setFooter"></label>
+        <label><span data-i18n="footer">Bill footer message</span> <input id="setFooter" dir="auto"></label>
+        <div class="chips" id="footerChips"></div>
         <button class="btn primary big" data-i18n="saveSettings">Save settings</button>
       </form>
       <p class="muted center whoami"></p>
@@ -165,7 +166,7 @@
   </main>
 
   <nav class="bottomnav">
-    <button data-view="sell" class="active">🛒<span>Sell</span></button>
+    <button data-view="sell" class="active">🛒<span data-i18n="navSell">Sell</span></button>
     <button data-view="items">📦<span data-i18n="navItems">Items</span></button>
     <button data-view="accounts">📊<span data-i18n="navAccounts">Accounts</span></button>
     <button data-view="settings">⚙️<span data-i18n="navSettings">Settings</span></button>

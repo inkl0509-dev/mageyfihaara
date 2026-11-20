@@ -211,3 +211,7 @@ p.dv, h3.dv, .empty.dv { text-align: right; }
 .bottomnav button span.dv { font-size: 12px; white-space: nowrap; }
 .qtybtn.dv { font-size: 14px; }
 #priceRow:has(.dv) { flex-direction: row-reverse; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { border: 1.5px solid var(--brand); background: #fff4ec; color: var(--brand-dark); border-radius: 12px;
+  padding: 10px 14px; min-height: 48px; font-size: 15px; cursor: pointer; text-align: start; }
+.chip:active { transform: scale(.97); }

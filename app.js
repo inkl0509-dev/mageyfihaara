@@ -81,11 +81,28 @@ const DV = {
   expenses: "ޚަރަދުތައް", noExpenses: "އެއްވެސް ޚަރަދެއް ނެތް",
   country: "ކަންޓްރީ ކޯޑު (ދިވެހިރާއްޖެ = 960)", saveSettings: "ސެޓިންގްސް ސޭވްކުރޭ", logout: "ލޮގް އައުޓް",
   navItems: "އައިޓަމްތައް", navAccounts: "ހިސާބު ކިތާބު", navSettings: "ސެޓިންގް",
+  navSell: "ވިއްކާ",
+  searchItems: "ތަކެތި ހޯދާ",
+  expPh: "މިސާލަކަށް: ތެޔޮ، ގޭސް، ކުލި",
+  mvr: "ރުފިޔާ",
+  topItems: "އެންމެ ގިނައިން ވިކުނު ތަކެތި",
+  noSales: "މި މުއްދަތުގައި އެއްވެސް ވިޔަފާރިއެއް ނުވޭ",
+  bills: "ބިލްތައް",
+  downloadCsv: "ޑައުންލޯޑް ސީ.އެސް.ވީ",
+  noBills: "އެއްވެސް ބިލެއް ނެތް",
+  shopName: "ފިހާރައިގެ ނަން",
+  shopNamePh: "ހެދިކާ ފިހާރަ",
+  shopPhone: "ފިހާރައިގެ ފޯނު ނަންބަރު",
+  address: "އެޑްރެސް",
+  footer: "ބިލުގެ ތިރީގައި ހިމަނާ މެސެޖު",
 };
 const EN = {
   qtyBtn: "Qty", addItem: "Add item", addPhoto: "Tap to add photo",
   cash: "Cash", transfer: "Transfer", expenses: "Expenses", noExpenses: "No expenses",
+  noSales: "No sales in this period", noBills: "No bills",
 };
+// Bill footer suggestions (the bill text is the shop's choice, not each phone's language)
+const FOOTERS = ["Thank you! Come again 🙏", "ޝުކުރިއްޔާ! އަލުން ވަޑައިގަންނަވާ! 🙏"];
 let LANG = "en";
 try { LANG = localStorage.getItem("magey-lang") || "en"; } catch {}
 const t = (k) => (LANG === "dv" && DV[k]) || EN[k] || k;
@@ -870,7 +887,7 @@ async function loadAccounts() {
   const top = Object.entries(agg).sort((a, b) => b[1].amt - a[1].amt).slice(0, 10);
   $("#topItems").innerHTML = top.length ? top.map(([n, a]) =>
     `<div class="line"><div class="grow">${esc(n)}</div><span class="muted">${a.qty} sold</span><b>${money(a.amt)}</b></div>`).join("")
-    : `<div class="empty">No sales in this period</div>`;
+    : `<div class="empty ${dvc()}">${t("noSales")}</div>`;
 
   // Bills
   $("#billList").innerHTML = sales.length ? sales.map((s) => `
@@ -879,7 +896,7 @@ async function loadAccounts() {
         <div class="muted">${fmtDateTime(new Date(s.createdAtMs))} · ${s.lines.reduce((a, l) => a + l.qty, 0)} items</div></div>
       <span class="tag ${s.payment}">${s.payment === "cash" ? "Cash" : "Transfer"}</span>
       <b>${money(s.total)}</b>
-    </div>`).join("") : `<div class="empty">No bills</div>`;
+    </div>`).join("") : `<div class="empty ${dvc()}">${t("noBills")}</div>`;
 
   // Expenses
   $("#expenseList").innerHTML = expenses.length ? expenses.map((e) => `
@@ -976,6 +993,10 @@ function applyLang() {
   renderSellGrid();
   if (S.shopId && !$("#view-accounts").classList.contains("hidden")) loadAccounts();
 }
+$("#footerChips").innerHTML = FOOTERS.map((f) => `<button type="button" class="chip" dir="auto" data-footer="${esc(f)}">${esc(f)}</button>`).join("");
+$("#footerChips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-footer]"); if (b) $("#setFooter").value = b.dataset.footer;
+});
 $("#langBtn").addEventListener("click", () => {
   LANG = LANG === "dv" ? "en" : "dv";
   try { localStorage.setItem("magey-lang", LANG); } catch {}
