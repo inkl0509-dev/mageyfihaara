@@ -11,6 +11,7 @@ A phone app for selling samosas, rolls, chai and other snacks. It runs in the ph
 - **Bill**: change quantities with + and −, add a discount, see the total, and choose **Cash** (it works out the change) or **Transfer** (with an optional reference).
 - **WhatsApp bill**: send the receipt to the customer's number (type the 7-digit Maldives number, e.g. 7771234, and it becomes 9607771234). Bills can also be printed on a 58 mm printer.
 - **Accounts**: choose Today, Yesterday, 7 days, This month or your own dates. It shows total sales, number of bills, cash vs transfer, discounts, cost, expenses, gross profit, net profit, top items and the list of bills. You can open any bill to resend it or delete it, and download a CSV file for Excel.
+- **ދިވެހި / English**: tap **ދިވެހި** at the top to switch to Dhivehi, and each phone remembers its choice. It uses the same words as the Naalu app. Dhivehi text uses the **Faruma** font: put `faruma.ttf` in the `fonts` folder (see `fonts/README.txt`). Phones without it use the free Noto Sans Thaana font.
 - **Works offline**: sales are saved on the phone and sync when the internet comes back.
 - **Login per shop**: each seller sees only their own data.
 

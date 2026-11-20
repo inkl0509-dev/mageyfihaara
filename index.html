@@ -9,6 +9,7 @@
   <link rel="icon" href="icons/icon.svg">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thaana:wght@400;700&display=swap">
   <!-- Barcode scanner (camera) and barcode label generator -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
@@ -82,17 +83,20 @@
 <section id="app" class="hidden">
   <header class="top">
     <span id="shopTitle">Magey Fihaara</span>
-    <span id="netStatus" class="pill hidden">Offline</span>
+    <span class="row">
+      <span id="netStatus" class="pill hidden">Offline</span>
+      <button id="langBtn" class="pill langbtn">ދިވެހި</button>
+    </span>
   </header>
 
   <main>
     <!-- SELL -->
     <div id="view-sell" class="view">
       <div class="searchbar">
-        <input id="search" type="search" placeholder="Search item or type barcode…" autocomplete="off">
+        <input id="search" type="search" placeholder="Search item or type barcode…" data-i18n-ph="searchPh" autocomplete="off">
         <button class="btn icon" id="scanSellBtn" title="Scan barcode">📷</button>
       </div>
-      <p class="hint">Tap item = +1 &nbsp;·&nbsp; Tap <b>🔢 Qty</b> = type how many (e.g. 20)</p>
+      <p class="hint" data-i18n="hint">Tap item = +1  ·  Tap 🔢 Qty = type how many (e.g. 20)</p>
       <div id="sellGrid" class="grid"></div>
       <div class="cartbar">
         <div class="cartinfo">
@@ -108,7 +112,7 @@
     <div id="view-items" class="view hidden">
       <div class="searchbar">
         <input id="itemSearch" type="search" placeholder="Search items…" autocomplete="off">
-        <button class="btn primary" id="addItemBtn">+ Add</button>
+        <button class="btn primary" id="addItemBtn">+ <span data-i18n="add">Add</span></button>
       </div>
       <div id="itemList" class="list"></div>
     </div>
@@ -116,11 +120,11 @@
     <!-- ACCOUNTS -->
     <div id="view-accounts" class="view hidden">
       <div class="seg scroll" id="periodSeg">
-        <button data-p="today" class="active">Today</button>
-        <button data-p="yesterday">Yesterday</button>
-        <button data-p="week">7 Days</button>
-        <button data-p="month">This Month</button>
-        <button data-p="custom">Custom</button>
+        <button data-p="today" class="active" data-i18n="today">Today</button>
+        <button data-p="yesterday" data-i18n="yesterday">Yesterday</button>
+        <button data-p="week" data-i18n="days7">7 Days</button>
+        <button data-p="month" data-i18n="thisMonth">This Month</button>
+        <button data-p="custom" data-i18n="custom">Custom</button>
       </div>
       <div id="customRange" class="row hidden">
         <input type="date" id="fromDate">
@@ -130,11 +134,11 @@
 
       <div id="stats" class="stats"></div>
 
-      <h3>Expenses</h3>
+      <h3 data-i18n="expenses">Expenses</h3>
       <form id="expenseForm" class="row">
         <input id="expTitle" placeholder="e.g. Oil, gas, rent" required>
         <input id="expAmount" type="number" inputmode="decimal" placeholder="MVR" required min="0" step="any" class="narrow">
-        <button class="btn primary">Add</button>
+        <button class="btn primary" data-i18n="add">Add</button>
       </form>
       <div id="expenseList" class="list"></div>
 
@@ -151,20 +155,20 @@
         <label>Shop name <input id="setName" required></label>
         <label>Shop phone <input id="setPhone" type="tel"></label>
         <label>Address <input id="setAddress"></label>
-        <label>Country code (Maldives = 960) <input id="setCountry" inputmode="numeric"></label>
+        <label><span data-i18n="country">Country code (Maldives = 960)</span> <input id="setCountry" inputmode="numeric"></label>
         <label>Bill footer message <input id="setFooter"></label>
-        <button class="btn primary big">Save settings</button>
+        <button class="btn primary big" data-i18n="saveSettings">Save settings</button>
       </form>
       <p class="muted center whoami"></p>
-      <button class="btn big danger-outline" id="logoutBtn">Logout</button>
+      <button class="btn big danger-outline" id="logoutBtn" data-i18n="logout">Logout</button>
     </div>
   </main>
 
   <nav class="bottomnav">
     <button data-view="sell" class="active">🛒<span>Sell</span></button>
-    <button data-view="items">📦<span>Items</span></button>
-    <button data-view="accounts">📊<span>Accounts</span></button>
-    <button data-view="settings">⚙️<span>Settings</span></button>
+    <button data-view="items">📦<span data-i18n="navItems">Items</span></button>
+    <button data-view="accounts">📊<span data-i18n="navAccounts">Accounts</span></button>
+    <button data-view="settings">⚙️<span data-i18n="navSettings">Settings</span></button>
   </nav>
 </section>
 
@@ -179,16 +183,16 @@
       <span id="itemPhotoHint">📸 Tap to add photo</span>
       <input id="itemPhoto" type="file" accept="image/*" hidden>
     </label>
-    <label>Item name <input id="itemName" required placeholder="e.g. Samosa"></label>
-    <div class="row">
-      <label>Sale price (MVR) <input id="itemPrice" type="number" inputmode="decimal" min="0" step="any" required></label>
-      <label>Cost price (MVR) <small>(optional)</small><input id="itemCost" type="number" inputmode="decimal" min="0" step="any"></label>
+    <label><span data-i18n="itemName">Item name</span> <input id="itemName" required placeholder="e.g. Masroshi" data-i18n-ph="itemNamePh"></label>
+    <div class="row" id="priceRow">
+      <label><span data-i18n="salePrice">Sale price (MVR)</span> <input id="itemPrice" type="number" inputmode="decimal" min="0" step="any" required></label>
+      <label><span data-i18n="costPrice">Cost price (MVR) (optional)</span><input id="itemCost" type="number" inputmode="decimal" min="0" step="any"></label>
     </div>
-    <label>Barcode
+    <label><span data-i18n="barcode">Barcode</span>
       <div class="row">
-        <input id="itemBarcode" placeholder="Scan or type">
+        <input id="itemBarcode" placeholder="Scan or type" data-i18n-ph="scanOrType">
         <button type="button" class="btn icon" id="itemScanBtn" title="Scan">📷</button>
-        <button type="button" class="btn small" id="genBarcodeBtn">Make new</button>
+        <button type="button" class="btn small" id="genBarcodeBtn" data-i18n="makeNew">Make new</button>
       </div>
     </label>
     <div id="barcodeBox" class="barcode-box hidden">
@@ -197,7 +201,7 @@
     </div>
     <div class="row">
       <button type="button" class="btn danger-outline hidden" id="deleteItemBtn">Delete</button>
-      <button class="btn primary big grow">Save item</button>
+      <button class="btn primary big grow" data-i18n="saveItem">Save item</button>
     </div>
   </form>
 </div>
@@ -228,11 +232,11 @@
     <div id="cartLines" class="list"></div>
     <div class="row between"><span>Subtotal</span><b id="coSubtotal"></b></div>
     <label class="row between"><span>Discount</span><input id="coDiscount" type="number" inputmode="decimal" min="0" step="any" value="0" class="narrow"></label>
-    <div class="row between grand"><span>TOTAL</span><b id="coTotal"></b></div>
+    <div class="row between grand"><span data-i18n="total">TOTAL</span><b id="coTotal"></b></div>
 
     <div class="seg" id="paySeg">
-      <button data-pay="cash" class="active">💵 Cash</button>
-      <button data-pay="transfer">🏦 Transfer</button>
+      <button data-pay="cash" class="active">💵 <span data-i18n="cash">Cash</span></button>
+      <button data-pay="transfer">🏦 <span data-i18n="transfer">Transfer</span></button>
     </div>
     <div id="cashBox">
       <label class="row between"><span>Cash received</span><input id="coReceived" type="number" inputmode="decimal" min="0" step="any" class="narrow"></label>

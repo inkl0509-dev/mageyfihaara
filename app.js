@@ -58,6 +58,39 @@ const fmtDateTime = (d) =>
   `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 const toDateInput = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
+// ---------------- Dhivehi words ----------------
+const DV = {
+  // Magey Fihaara
+  searchPh: "އައިޓަމް ހޯއްދަވާ ނުވަތަ ބާކޯޑު ޖައްސަވާ…",
+  hint: "އައިޓަމަށް ފިއްތާލުމުން = 1+  ·  ޢަދަދަށް ފިއްތާލުމުން = ބޭނުންވާ ޢަދަދު ޖަހާ (މިސާލަކަށް: 20)",
+  qtyBtn: "ޢަދަދު",
+  add: "އިތުރުކުރޭ",
+  addItem: "އައިޓަމް އިތުރުކުރޭ",
+  addPhoto: "ފޮޓޯ ލުމަށް ފިއްތާލާ",
+  itemName: "އައިޓަމްގެ ނަން",
+  itemNamePh: "މިސާލަކަށް: މަސްރޮށި",
+  salePrice: "ވިއްކާ އަގު (ދިވެހި ރުފިޔާ)",
+  costPrice: "ގަތް އަގު (ދިވެހި ރުފިޔާ) (އިޚްތިޔާރީ)",
+  barcode: "ބާކޯޑު",
+  scanOrType: "ސްކޭން ނުވަތަ ޓައިޕްކުރޭ",
+  makeNew: "އަލުން ހަދާ",
+  saveItem: "އައިޓަމް ސޭވްކުރޭ",
+  // same words as Naalu
+  total: "ޖުމްލަ", cash: "ނަގުދު ފައިސާ", transfer: "ޓްރާންސްފަރ",
+  today: "މިއަދު", yesterday: "އިއްޔެ", days7: "7 ދުވަސް", thisMonth: "މި މަސް", custom: "ކަސްޓަމް",
+  expenses: "ޚަރަދުތައް", noExpenses: "އެއްވެސް ޚަރަދެއް ނެތް",
+  country: "ކަންޓްރީ ކޯޑު (ދިވެހިރާއްޖެ = 960)", saveSettings: "ސެޓިންގްސް ސޭވްކުރޭ", logout: "ލޮގް އައުޓް",
+  navItems: "އައިޓަމްތައް", navAccounts: "ހިސާބު ކިތާބު", navSettings: "ސެޓިންގް",
+};
+const EN = {
+  qtyBtn: "Qty", addItem: "Add item", addPhoto: "Tap to add photo",
+  cash: "Cash", transfer: "Transfer", expenses: "Expenses", noExpenses: "No expenses",
+};
+let LANG = "en";
+try { LANG = localStorage.getItem("magey-lang") || "en"; } catch {}
+const t = (k) => (LANG === "dv" && DV[k]) || EN[k] || k;
+const dvc = () => (LANG === "dv" ? "dv" : "");
+
 let toastTimer;
 function toast(msg) {
   const t = $("#toast");
@@ -355,7 +388,7 @@ function renderSellGrid() {
       ${i.photo ? `<img src="${i.photo}" alt="">` : `<div class="noimg">${esc(i.name.slice(0, 2).toUpperCase())}</div>`}
       <div class="nm">${esc(i.name)}</div>
       <div class="pr">${money(i.price)}</div>
-      <button class="qtybtn" type="button">🔢 Qty</button>
+      <button class="qtybtn ${dvc()}" type="button">🔢 ${t("qtyBtn")}</button>
     </div>`;
   }).join("");
 }
@@ -631,7 +664,8 @@ function openItem(id) {
   const it = id ? S.items.find((i) => i.id === id) : null;
   S.editItemId = id;
   S.itemPhoto = it?.photo || "";
-  $("#itemModalTitle").textContent = it ? "Edit item" : "Add item";
+  $("#itemModalTitle").textContent = it ? "Edit item" : t("addItem");
+  $("#itemModalTitle").classList.toggle("dv", !it && LANG === "dv");
   $("#itemName").value = it?.name || "";
   $("#itemPrice").value = it?.price ?? "";
   $("#itemCost").value = it?.cost || "";
@@ -644,7 +678,8 @@ function openItem(id) {
 function showPhoto() {
   $("#itemPhotoPreview").src = S.itemPhoto || "";
   $("#itemPhotoPreview").classList.toggle("hidden", !S.itemPhoto);
-  $("#itemPhotoHint").textContent = S.itemPhoto ? "Tap to change photo" : "📸 Tap to add photo";
+  $("#itemPhotoHint").textContent = S.itemPhoto ? "Tap to change photo" : "📸 " + t("addPhoto");
+  $("#itemPhotoHint").classList.toggle("dv", !S.itemPhoto && LANG === "dv");
 }
 
 // Shrink photo to a small JPEG so it can live inside Firestore (no paid Storage needed)
@@ -814,15 +849,15 @@ async function loadAccounts() {
   const gross = total - cost;
   const net = gross - exp;
 
-  const stat = (label, value, cls = "") => `<div class="stat ${cls}"><span>${label}</span><b>${value}</b></div>`;
+  const stat = (label, value, cls = "") => `<div class="stat ${cls}"><span class="${/[\u0780-\u07BF]/.test(label) ? "dv" : ""}">${label}</span><b>${value}</b></div>`;
   $("#stats").innerHTML =
     stat("Total sales", money(total), "big") +
     stat("Bills", sales.length) +
-    stat("💵 Cash", money(cash)) +
-    stat("🏦 Transfer", money(transfer)) +
+    stat("💵 " + t("cash"), money(cash)) +
+    stat("🏦 " + t("transfer"), money(transfer)) +
     stat("Discounts", money(discount)) +
     stat("Cost of items", money(cost)) +
-    stat("Expenses", money(exp)) +
+    stat(t("expenses"), money(exp)) +
     stat("Gross profit", money(gross)) +
     stat("Net profit", money(net), net >= 0 ? "good big" : "bad big");
 
@@ -851,7 +886,7 @@ async function loadAccounts() {
     <div class="line" data-id="${e.id}">
       <div class="grow">${esc(e.title)}<div class="muted">${fmtDateTime(new Date(e.createdAtMs))}</div></div>
       <b>${money(e.amount)}</b><button class="x" data-del-exp="${e.id}">🗑</button>
-    </div>`).join("") : `<div class="empty">No expenses</div>`;
+    </div>`).join("") : `<div class="empty ${dvc()}">${t("noExpenses")}</div>`;
 }
 
 $("#billList").addEventListener("click", (e) => {
@@ -921,3 +956,29 @@ $("#settingsForm").addEventListener("submit", (e) => {
   applyShop();
   toast("Settings saved ✔");
 });
+
+// ---------------- LANGUAGE (English / Dhivehi) ----------------
+// Same words as the Naalu app where the English is the same.
+function applyLang() {
+  const dv = LANG === "dv";
+  $$("[data-i18n]").forEach((el) => {
+    if (el.dataset.en === undefined) el.dataset.en = el.textContent;
+    el.textContent = dv && DV[el.dataset.i18n] ? DV[el.dataset.i18n] : el.dataset.en;
+    el.classList.toggle("dv", dv && !!DV[el.dataset.i18n]);
+  });
+  $$("[data-i18n-ph]").forEach((el) => {
+    if (el.dataset.enPh === undefined) el.dataset.enPh = el.placeholder;
+    el.placeholder = dv && DV[el.dataset.i18nPh] ? DV[el.dataset.i18nPh] : el.dataset.enPh;
+    el.classList.toggle("dv-ph", dv);
+  });
+  $("#langBtn").textContent = dv ? "EN" : "ދިވެހި";
+  $("#langBtn").classList.toggle("dv", !dv);
+  renderSellGrid();
+  if (S.shopId && !$("#view-accounts").classList.contains("hidden")) loadAccounts();
+}
+$("#langBtn").addEventListener("click", () => {
+  LANG = LANG === "dv" ? "en" : "dv";
+  try { localStorage.setItem("magey-lang", LANG); } catch {}
+  applyLang();
+});
+applyLang();

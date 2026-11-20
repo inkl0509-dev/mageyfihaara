@@ -183,3 +183,31 @@ main { padding: 12px 12px 150px; max-width: 900px; margin: 0 auto; }
 .member { display: flex; align-items: center; font-size: 14px; border-top: 1px solid var(--line); padding-top: 4px; }
 .tag.offtag { background: #fff5f5; color: var(--bad); }
 .logo-img { width: 96px; height: 96px; }
+
+/* ---------- Dhivehi: Faruma font (same setup as Naalu) ----------
+   Uses Faruma if installed on the phone or placed in /fonts (see fonts/README.txt),
+   otherwise the free Noto Sans Thaana. Only Thaana letters use it. */
+@font-face {
+  font-family: "FarumaThaana";
+  src: local("Faruma"), local("Faruma Regular"),
+       url("fonts/faruma.woff2") format("woff2"), url("fonts/faruma.ttf") format("truetype");
+  font-display: swap;
+  unicode-range: U+0780-07BF, U+060C, U+061B, U+061F, U+FDF2, U+FD3E-FD3F;
+}
+:root { --thaana: "FarumaThaana", "Faruma", "Noto Sans Thaana", "MV Faseyha", sans-serif; }
+body, input, button, select, textarea {
+  font-family: "FarumaThaana", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Thaana", sans-serif;
+}
+.receipt { font-family: "FarumaThaana", ui-monospace, Menlo, monospace; }
+.dv, .dv-ph::placeholder, .langbtn { font-family: var(--thaana); }
+.dv { direction: rtl; unicode-bidi: isolate; line-height: 1.6; }
+.dv-ph:placeholder-shown { direction: rtl; }
+label > span.dv { display: block; text-align: right; }
+p.dv, h3.dv, .empty.dv { text-align: right; }
+.hint.dv { text-align: right; font-size: 13px; }
+.top .row { gap: 6px; }
+.pill.langbtn { border: 0; color: #fff; cursor: pointer; min-height: 40px; min-width: 60px; padding: 6px 12px;
+  font-size: 15px; border-radius: 12px; background: #ffffff2e; }
+.bottomnav button span.dv { font-size: 12px; white-space: nowrap; }
+.qtybtn.dv { font-size: 14px; }
+#priceRow:has(.dv) { flex-direction: row-reverse; }
