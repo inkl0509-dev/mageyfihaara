@@ -19,6 +19,16 @@ A phone app for selling samosas, rolls, chai and other snacks. It runs in the ph
   - **🏦 Send account no.**: sends a separate WhatsApp message to the customer's number with just the account number, for easy copying.
   - **📋 Copy account no.**, **💬 Text bill**, **⬇ Save photo** and **🖨 Print**.
   - If the shop has more than one account, tap which one to send.
+- **📒 Real double-entry accounting** (📊 Accounts tab). Every bill, expense, payment and stock movement is posted automatically as a balanced journal entry (debits = credits), so the shop owner needs no accounting knowledge:
+  - **Every day:** Sales summary · **Day closing** (count the cash drawer; over/short is recorded) · **Cash & bank** (deposit / withdraw, cash book, bank book) · **Customers (credit)** · **Suppliers** · **Stock**
+  - **Credit customers:** choose 📒 Credit at checkout and type the customer's name. Their balance builds up. Record their payments, see a full statement and send it on WhatsApp with your bank account.
+  - **Supplier credit:** expenses and stock purchases can be 📒 Credit. Pay suppliers later from their page.
+  - **Stock:** tick “Track stock” on an item and enter the opening quantity. **Buy stock** adds quantities at cost (average cost is kept automatically), sales reduce stock and post the cost of goods sold, and **Count stock** records losses or gains.
+  - **Owner money & opening balances:** owner puts money in / takes money out (capital and drawings), and opening cash and bank when you start. Customers and suppliers can have opening balances when you add them.
+  - **Reports:** Profit & Loss, Balance Sheet (checks assets = liabilities + equity), GST report (with “Record GST payment to MIRA”), Trial balance. All can be downloaded as CSV or printed.
+  - **Accountant tools:** Journal (every entry), General ledger for any account with running balance, Chart of accounts (add your own accounts) and **Manual journal entries** (e.g. depreciation, loans, corrections; must balance).
+  - Deleting a bill or expense reverses its entries, stock and customer/supplier balance automatically.
+  - Have your accountant review the setup (chart of accounts, opening balances) when you start.
 - **ދިވެހި / English**: tap **ދިވެހި** at the top to switch to Dhivehi, and each phone remembers its choice. It uses the same words as the Naalu app. Dhivehi text uses the **Faruma** font: put `faruma.ttf` in the `fonts` folder (see `fonts/README.txt`). Phones without it use the free Noto Sans Thaana font.
 - **Works offline**: sales are saved on the phone and sync when the internet comes back.
 - **Login per shop**: each seller sees only their own data.

@@ -9,7 +9,7 @@ import {
 import {
   initializeFirestore, persistentLocalCache, persistentMultipleTabManager,
   collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocs,
-  onSnapshot, query, where, orderBy, serverTimestamp, writeBatch
+  onSnapshot, query, where, orderBy, serverTimestamp, writeBatch, increment, limit
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 import { firebaseConfig } from "./firebase-config.js";
 
@@ -289,10 +289,12 @@ async function startShop(shopId) {
   showScreen("#app");
   applyShop();
 
+  startAccountingListeners();
   S.unsubItems = onSnapshot(query(col("items"), orderBy("name")), (snap) => {
     S.items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     for (const id of [...S.cart.keys()]) if (!S.items.find((i) => i.id === id)) S.cart.delete(id);
     renderSellGrid(); renderItemList(); renderCartBar();
+    if (S.accPage === "stock" && !$("#view-accounts").classList.contains("hidden")) renderStock();
   }, (e) => {
     if (e.code === "permission-denied") showJoin("⛔ This shop is turned off or this phone was removed. Contact admin.");
     else fail(e);
@@ -391,7 +393,7 @@ $$(".bottomnav button").forEach((b) => b.addEventListener("click", () => {
   $$(".bottomnav button").forEach((x) => x.classList.toggle("active", x === b));
   $$(".view").forEach((v) => v.classList.add("hidden"));
   $("#view-" + b.dataset.view).classList.remove("hidden");
-  if (b.dataset.view === "accounts") { S.acctMode === "gst" ? loadGst() : loadAccounts(); }
+  if (b.dataset.view === "accounts") openPage(S.accPage || "hub");
   if (b.dataset.view === "expenses") openExpenses();
   if (b.dataset.view === "settings") fillSettings();
 }));
@@ -420,6 +422,7 @@ function renderSellGrid() {
       ${i.photo ? `<img src="${i.photo}" alt="">` : `<div class="noimg">${esc(i.name.slice(0, 2).toUpperCase())}</div>`}
       <div class="nm">${esc(i.name)}</div>
       <div class="pr">${money(i.price)}</div>
+      ${i.track ? `<div class="stk ${(i.stock || 0) <= 0 ? "out" : ""}">📦 ${num(i.stock || 0)}</div>` : ""}
       <button class="qtybtn ${dvc()}" type="button">🔢 ${t("qtyBtn")}</button>
     </div>`;
   }).join("");
@@ -436,7 +439,7 @@ const addToCart = (id, n = 1) => { setQty(id, (S.cart.get(id) || 0) + n); naviga
 function cartLines() {
   return [...S.cart].map(([id, qty]) => {
     const it = S.items.find((i) => i.id === id);
-    return it ? { id, name: it.name, price: Number(it.price) || 0, cost: Number(it.cost) || 0, qty } : null;
+    return it ? { id, name: it.name, price: Number(it.price) || 0, cost: Number(it.cost) || 0, qty, track: !!it.track } : null;
   }).filter(Boolean);
 }
 const cartSubtotal = () => cartLines().reduce((s, l) => s + l.price * l.qty, 0);
@@ -537,7 +540,7 @@ document.addEventListener("keydown", (e) => {
 $("#checkoutBtn").addEventListener("click", () => {
   if (!S.cart.size) return toast("Add items first");
   $("#coDiscount").value = 0; $("#coReceived").value = ""; $("#coRef").value = ""; $("#coPhone").value = "";
-  $("#coTax").checked = !!S.shop.taxDefault; $("#coTin").value = "";
+  $("#coTax").checked = !!S.shop.taxDefault; $("#coTin").value = ""; $("#coCustName").value = "";
   $("#coTin").classList.toggle("hidden", !$("#coTax").checked);
   renderTaxLbl();
   setPayment("cash");
@@ -611,8 +614,10 @@ function setPayment(p) {
   $$("#paySeg button").forEach((b) => b.classList.toggle("active", b.dataset.pay === p));
   $("#cashBox").classList.toggle("hidden", p !== "cash");
   $("#transferBox").classList.toggle("hidden", p !== "transfer");
+  $("#creditBox").classList.toggle("hidden", p !== "credit");
+  if (p === "credit") showCustOwes();
 }
-$("#paySeg").addEventListener("click", (e) => { if (e.target.dataset.pay) setPayment(e.target.dataset.pay); });
+$("#paySeg").addEventListener("click", (e) => { const b = e.target.closest("[data-pay]"); if (b) setPayment(b.dataset.pay); });
 
 function makeBillNo(d) {
   return `${String(d.getFullYear()).slice(2)}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
@@ -621,8 +626,11 @@ function makeBillNo(d) {
 function saveSale(sendWhatsApp) {
   const lines = cartLines();
   if (!lines.length) return;
+  const custName = $("#coCustName").value.trim();
+  if (S.payment === "credit" && !custName) return toast("Enter the customer's name for a credit sale");
   const t = totals();
   const now = new Date();
+  const ref = doc(col("sales"));
   const sale = {
     billNo: makeBillNo(now),
     lines,
@@ -636,13 +644,24 @@ function saveSale(sendWhatsApp) {
     ref: S.payment === "transfer" ? $("#coRef").value.trim() : "",
     received: S.payment === "cash" ? Number($("#coReceived").value) || 0 : 0,
     customer: $("#coPhone").value.trim(),
+    customerId: "", customerName: "",
+    posted: true,
     createdAtMs: now.getTime(),
     createdAt: serverTimestamp(),
   };
-  const ref = doc(col("sales"));
-  // Not awaited on purpose: saves instantly offline and syncs later
-  setDoc(ref, sale).catch(fail);
   sale.id = ref.id;
+  const batch = writeBatch(db);
+  if (S.payment === "credit") {
+    sale.customerId = partyId(batch, "customers", custName, sale.customer);
+    sale.customerName = custName;
+    batch.update(doc(col("customers"), sale.customerId), { balance: increment(sale.total) });
+  }
+  const { id: _omit, ...saleData } = sale;
+  batch.set(ref, saleData);
+  postEntry(batch, saleEntry(sale));
+  lines.filter((l) => l.track).forEach((l) => batch.update(doc(col("items"), l.id), { stock: increment(-l.qty) }));
+  // Not awaited on purpose: saves instantly offline and syncs later
+  batch.commit().catch(fail);
 
   // Open WhatsApp right away (inside the tap, so the phone doesn't block it)
   if (sendWhatsApp) window.open(waUrl(sale.customer, billText(sale)), "_blank");
@@ -676,7 +695,8 @@ function billText(s) {
     L.push(`GST ${s.gstRate}%${s.gstInclusive ? " (included)" : ""}: ${money(s.gst)}`);
   }
   L.push(`*TOTAL: ${money(s.total)}*`);
-  L.push(`Paid by: ${s.payment === "cash" ? "Cash" : "Bank Transfer"}${s.ref ? ` (${s.ref})` : ""}`);
+  if (s.payment === "credit") L.push(`📒 *On credit – to pay: ${money(s.total)}*${s.customerName ? ` (${s.customerName})` : ""}`);
+  else L.push(`Paid by: ${s.payment === "cash" ? "Cash" : "Bank Transfer"}${s.ref ? ` (${s.ref})` : ""}`);
   if (s.payment === "cash" && s.received > 0)
     L.push(`Received: ${money(s.received)}  Change: ${money(s.received - s.total)}`);
   const banks = billBanks();
@@ -712,7 +732,7 @@ $("#billPrintBtn").addEventListener("click", () => {
 });
 $("#billDeleteBtn").addEventListener("click", async () => {
   if (!confirm("Delete this bill? This cannot be undone.")) return;
-  deleteDoc(doc(col("sales"), S.billSale.id)).catch(fail);
+  deleteSale(S.billSale);
   $("#billModal").classList.add("hidden");
   toast("Bill deleted");
   setTimeout(loadAccounts, 300);
@@ -748,6 +768,9 @@ function openItem(id) {
   $("#itemBarcode").value = it?.barcode || "";
   $("#itemPhoto").value = "";
   $("#deleteItemBtn").classList.toggle("hidden", !it);
+  $("#itemTrack").checked = !!it?.track;
+  $("#itemOpen").value = "";
+  showStockFields(it);
   showPhoto(); drawBarcode();
   openModal("#itemModal");
 }
@@ -821,11 +844,22 @@ $("#itemForm").addEventListener("submit", (e) => {
     cost: Number($("#itemCost").value) || 0,
     barcode,
     photo: S.itemPhoto || "",
+    track: $("#itemTrack").checked,
     updatedAt: Date.now(),
   };
   if (!data.name) return toast("Enter item name");
   const ref = S.editItemId ? doc(col("items"), S.editItemId) : doc(col("items"));
-  (S.editItemId ? updateDoc(ref, data) : setDoc(ref, data)).catch(fail);
+  const old = S.editItemId ? S.items.find((i) => i.id === S.editItemId) : null;
+  const openQty = Number($("#itemOpen").value) || 0;
+  const batch = writeBatch(db);
+  if (data.track && !(old && old.track)) {
+    data.stock = (old?.stock || 0) + openQty;
+    const v = round2(openQty * data.cost);
+    if (v) postEntry(batch, { date: Date.now(), memo: `Opening stock – ${data.name} (${openQty} × ${num(data.cost)})`, source: "opening",
+      lines: [{ a: "1200", dr: v }, { a: "3200", cr: v }] });
+  }
+  S.editItemId ? batch.update(ref, data) : batch.set(ref, data);
+  batch.commit().catch(fail);
   $("#itemModal").classList.add("hidden");
   toast("Item saved ✔");
 });
@@ -913,11 +947,12 @@ async function loadAccounts() {
     sales = ss.docs.map((d) => ({ id: d.id, ...d.data() }));
     expenses = es.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (e) { return fail(e); }
-  S.periodSales = sales;
+  S.periodSales = sales; S.periodExpenses = expenses;
 
   const sum = (arr, f) => arr.reduce((s, x) => s + (Number(f(x)) || 0), 0);
   const total = sum(sales, (s) => s.total);
   const cash = sum(sales.filter((s) => s.payment === "cash"), (s) => s.total);
+  const credit = sum(sales.filter((s) => s.payment === "credit"), (s) => s.total);
   const transfer = sum(sales.filter((s) => s.payment === "transfer"), (s) => s.total);
   const discount = sum(sales, (s) => s.discount);
   const cost = sum(sales, (s) => s.cost);
@@ -933,6 +968,7 @@ async function loadAccounts() {
     stat("Bills", sales.length) +
     stat("💵 " + t("cash"), money(cash)) +
     stat("🏦 " + t("transfer"), money(transfer)) +
+    stat("📒 Credit (to collect)", money(credit)) +
     stat("Discounts", money(discount)) +
     stat("🧾 " + t("gstInv"), money(gst)) +
     stat("Cost of items", money(cost)) +
@@ -956,7 +992,7 @@ async function loadAccounts() {
     <div class="line tap" data-id="${s.id}">
       <div class="grow"><b>#${esc(s.billNo)}</b>
         <div class="muted">${fmtDateTime(new Date(s.createdAtMs))} · ${s.lines.reduce((a, l) => a + l.qty, 0)} items</div></div>
-      ${s.tax ? `<span class="tag">🧾</span>` : ""}<span class="tag ${s.payment}">${s.payment === "cash" ? "Cash" : "Transfer"}</span>
+      ${s.tax ? `<span class="tag">🧾</span>` : ""}<span class="tag ${s.payment === "credit" ? "offtag" : s.payment}">${{ cash: "Cash", transfer: "Transfer", credit: "Credit" }[s.payment] || s.payment}</span>
       <b>${money(s.total)}</b>
     </div>`).join("") : `<div class="empty ${dvc()}">${t("noBills")}</div>`;
 
@@ -978,7 +1014,7 @@ $("#goAddExpense").addEventListener("click", () => $('.bottomnav [data-view="exp
 $("#expenseList").addEventListener("click", (e) => {
   const id = e.target.dataset.delExp; if (!id) return;
   if (!confirm("Delete this expense?")) return;
-  deleteDoc(doc(col("expenses"), id)).catch(fail);
+  deleteExpense((S.periodExpenses || []).find((x) => x.id === id) || { id });
   setTimeout(loadAccounts, 300);
 });
 
@@ -1196,7 +1232,8 @@ async function renderBillPng(s) {
   }
   y += 6;
   row("TOTAL", money(s.total), { size: 38, bold: true, rcolor: brand, gap: 8 });
-  text(`Paid by: ${s.payment === "cash" ? "Cash" : "Bank transfer"}${s.ref ? ` (${s.ref})` : ""}`, { size: 21, color: muted });
+  if (s.payment === "credit") text(`On credit – to pay ${money(s.total)}${s.customerName ? " · " + s.customerName : ""}`, { size: 24, bold: true, color: brand });
+  else text(`Paid by: ${s.payment === "cash" ? "Cash" : "Bank transfer"}${s.ref ? ` (${s.ref})` : ""}`, { size: 21, color: muted });
   if (s.payment === "cash" && s.received > 0) text(`Received ${money(s.received)} · Change ${money(s.received - s.total)}`, { size: 21, color: muted });
 
   const banks = billBanks();
@@ -1317,19 +1354,29 @@ $("#expForm").addEventListener("submit", (e) => {
   e.preventDefault();
   const amount = round2($("#xAmount").value);
   const details = $("#xTitle").value.trim();
+  const supName = $("#xSupplier").value.trim();
   if (!amount) return toast("Enter the amount");
   if (!X.cat && !details) return toast("Choose a category or type details");
+  if (X.pay === "credit" && !supName) return toast("Enter the supplier for a credit purchase");
   const d = $("#xDate").value;
   const when = d === toDateInput(new Date()) ? Date.now() : new Date(d + "T12:00").getTime();
   const hasGst = $("#xGst").checked;
   const gst = hasGst ? Math.min(amount, round2($("#xGstAmt").value)) : 0;
-  setDoc(doc(col("expenses")), {
+  const batch = writeBatch(db);
+  const supplierId = supName ? partyId(batch, "suppliers", supName, "") : "";
+  if (X.pay === "credit") batch.update(doc(col("suppliers"), supplierId), { balance: increment(amount) });
+  const ref = doc(col("expenses"));
+  const x = {
     title: [X.cat, details].filter(Boolean).join(" – "),
-    category: X.cat || "Other", details, amount, paidBy: X.pay,
-    gst, supplier: hasGst ? $("#xSupplier").value.trim() : "",
+    category: X.cat || "Other", account: $("#xAcc").value || CAT_ACC[X.cat] || "6900",
+    details, amount, paidBy: X.pay,
+    gst, supplier: supName, supplierId,
     supplierTin: hasGst ? $("#xSupTin").value.trim() : "", invoiceNo: hasGst ? $("#xInvNo").value.trim() : "",
-    createdAtMs: when, createdAt: serverTimestamp(),
-  }).catch(fail);
+    posted: true, createdAtMs: when, createdAt: serverTimestamp(),
+  };
+  batch.set(ref, x);
+  postEntry(batch, expenseEntry({ ...x, id: ref.id }));
+  batch.commit().catch(fail);
   toast(`Expense saved ✔ ${money(amount)}`);
   resetExpForm();
   $("#xMonth").value = d.slice(0, 7);
@@ -1345,6 +1392,7 @@ async function loadExpenses() {
     const snap = await getDocs(query(col("expenses"), where("createdAtMs", ">=", from), where("createdAtMs", "<", to), orderBy("createdAtMs", "desc")));
     list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (e) { return fail(e); }
+  S.xExpenses = list;
   const sum = (arr, f) => round2(arr.reduce((a, x) => a + (Number(f(x)) || 0), 0));
   const total = sum(list, (e) => e.amount);
   const stat = (l, v, c = "") => `<div class="stat ${c}"><span>${l}</span><b>${v}</b></div>`;
@@ -1362,26 +1410,18 @@ async function loadExpenses() {
     <div class="line">
       <div class="grow"><b>${esc(e.category ? catLabel(e.category) : e.title)}</b>${e.details ? ` <span class="muted">${esc(e.details)}</span>` : ""}
         <div class="muted">${fmtDateTime(new Date(e.createdAtMs))} · ${e.paidBy === "transfer" ? "Transfer" : "Cash"}${e.gst ? ` · 🧾 GST ${num(e.gst)}${e.supplier ? " · " + esc(e.supplier) : ""}` : ""}</div></div>
-      <b>${money(e.amount)}</b><button class="x" data-del-x="${e.id}">🗑</button>
+      <b>${money(e.amount)}</b>${e.paidBy === "credit" ? `<span class="tag offtag">Credit</span>` : ""}<button class="x" data-del-x="${e.id}">🗑</button>
     </div>`).join("") || `<div class="empty ${dvc()}">${t("noExpenses")}</div>`;
 }
 $("#xMonth").addEventListener("change", loadExpenses);
 $("#xList").addEventListener("click", (e) => {
   const id = e.target.dataset.delX; if (!id || !confirm("Delete this expense?")) return;
-  deleteDoc(doc(col("expenses"), id)).catch(fail);
+  deleteExpense((S.xExpenses || []).find((x) => x.id === id) || { id });
   setTimeout(loadExpenses, 300);
 });
 
 // ================= GST REPORT =================
-S.acctMode = "sum"; S.gstPeriod = "month";
-$("#acctModeSeg").addEventListener("click", (e) => {
-  const b = e.target.closest("[data-am]"); if (!b) return;
-  S.acctMode = b.dataset.am;
-  $$("#acctModeSeg button").forEach((x) => x.classList.toggle("active", x === b));
-  $("#sumView").classList.toggle("hidden", S.acctMode !== "sum");
-  $("#gstView").classList.toggle("hidden", S.acctMode !== "gst");
-  S.acctMode === "gst" ? loadGst() : loadAccounts();
-});
+S.gstPeriod = "month";
 $("#gstPeriodSeg").addEventListener("click", (e) => {
   const b = e.target.closest("[data-g]"); if (!b) return;
   S.gstPeriod = b.dataset.g;
@@ -1417,9 +1457,9 @@ async function loadGst() {
   const rq = (name) => query(col(name), where("createdAtMs", ">=", from), where("createdAtMs", "<", to), orderBy("createdAtMs", "asc"));
   let sales = [], exps = [];
   try {
-    const [a, b] = await Promise.all([getDocs(rq("sales")), getDocs(rq("expenses"))]);
+    const [a, b, c] = await Promise.all([getDocs(rq("sales")), getDocs(rq("expenses")), getDocs(rq("purchases"))]);
     sales = a.docs.map((d) => ({ id: d.id, ...d.data() }));
-    exps = b.docs.map((d) => ({ id: d.id, ...d.data() }));
+    exps = [...b.docs, ...c.docs].map((d) => ({ id: d.id, ...d.data() })).sort((x, y) => x.createdAtMs - y.createdAtMs);
   } catch (e) { return fail(e); }
   const sum = (arr, f) => round2(arr.reduce((x, o) => x + (Number(f(o)) || 0), 0));
   const inv = sales.filter((s) => s.tax), plain = sales.filter((s) => !s.tax);
@@ -1491,3 +1531,786 @@ $("#gstPrint").addEventListener("click", () => {
     <script>window.onload=()=>window.print()<\/script></body></html>`);
   w.document.close();
 });
+
+// =====================================================================
+// =====================  ACCOUNTING (double entry)  ====================
+// =====================================================================
+// Every money event is a balanced journal entry (debits = credits).
+// journal/{id}            → one entry: date, memo, lines [{a: account, dr, cr}]
+// ledgerD/{YYYY-MM-DD}    → that day's net movement per account  (dr − cr), kept with increment()
+// ledgerM/{YYYY-MM}       → that month's net movement per account
+// Reports add up the small day/month docs, so they stay cheap even with thousands of bills.
+
+const COA_DEFAULT = [
+  ["1000", "Cash in hand", "asset"], ["1010", "Bank", "asset"], ["1100", "Customers owe us (receivables)", "asset"],
+  ["1200", "Stock (inventory)", "asset"], ["1300", "GST paid on purchases (input, claimable)", "asset"],
+  ["2000", "We owe suppliers (payables)", "liability"], ["2100", "GST collected (output, to pay MIRA)", "liability"],
+  ["3000", "Owner's capital", "equity"], ["3100", "Owner's drawings", "equity"], ["3200", "Opening balance equity", "equity"],
+  ["4000", "Sales", "income"], ["4100", "Discounts given", "income"], ["4900", "Other income", "income"],
+  ["5000", "Cost of goods sold (stock items)", "cogs"], ["5100", "Ingredients & cooking oil", "cogs"], ["5110", "Packaging", "cogs"],
+  ["6000", "Rent", "expense"], ["6010", "Electricity", "expense"], ["6020", "Water", "expense"], ["6030", "Gas", "expense"],
+  ["6100", "Salaries & wages", "expense"], ["6200", "Transport", "expense"], ["6800", "Stock loss / adjustment", "expense"],
+  ["6900", "Other expenses", "expense"], ["6950", "Cash over / short", "expense"],
+];
+const CAT_ACC = { Ingredients: "5100", Oil: "5100", Packaging: "5110", Rent: "6000", Electricity: "6010",
+  Water: "6020", Gas: "6030", Salary: "6100", Transport: "6200", Other: "6900" };
+const TYPE_NAME = { asset: "Assets", liability: "Liabilities", equity: "Equity", income: "Income", cogs: "Cost of sales", expense: "Expenses" };
+const DEBIT_TYPES = new Set(["asset", "cogs", "expense"]);
+S.coa = COA_DEFAULT.map(([code, name, type]) => ({ code, name, type }));
+S.customers = []; S.suppliers = [];
+
+const acc = (code) => S.coa.find((a) => a.code === code) || { code, name: code, type: "expense" };
+const accLabel = (code) => `${code} ${acc(code).name}`;
+const nb = (bal, code) => round2((bal[code] || 0) * (DEBIT_TYPES.has(acc(code).type) ? 1 : -1)); // normal-side balance
+const dayKey = (ms) => toDateInput(new Date(ms));
+const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+const nextDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1);
+const dateMs = (val) => (val === toDateInput(new Date()) ? Date.now() : new Date(val + "T12:00").getTime());
+const r2 = (n) => round2(n);
+function setToday(...ids) { ids.forEach((id) => { if (!$(id).value) $(id).value = toDateInput(new Date()); }); }
+
+function startAccountingListeners() {
+  S.unsubAdmin.push(onSnapshot(query(col("customers"), orderBy("name")), (snap) => {
+    S.customers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    $("#customerList").innerHTML = S.customers.map((c) => `<option value="${esc(c.name)}">`).join("");
+    if (S.accPage === "cust") renderCustomers();
+  }, () => {}));
+  S.unsubAdmin.push(onSnapshot(query(col("suppliers"), orderBy("name")), (snap) => {
+    S.suppliers = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    $("#supplierList").innerHTML = S.suppliers.map((c) => `<option value="${esc(c.name)}">`).join("");
+    if (S.accPage === "supp") renderSuppliers();
+  }, () => {}));
+  S.unsubAdmin.push(onSnapshot(col("coa"), (snap) => {
+    const custom = snap.docs.map((d) => ({ code: d.id, ...d.data(), custom: true }));
+    S.coa = [...COA_DEFAULT.map(([code, name, type]) => ({ code, name, type })), ...custom].sort((a, b) => a.code.localeCompare(b.code));
+    fillAccSelects();
+  }, () => {}));
+}
+
+// ---------- posting ----------
+function postEntry(batch, e) {
+  const lines = e.lines.map((l) => ({ a: l.a, dr: r2(l.dr || 0), cr: r2(l.cr || 0) })).filter((l) => l.dr || l.cr);
+  const dr = r2(lines.reduce((s, l) => s + l.dr, 0)), cr = r2(lines.reduce((s, l) => s + l.cr, 0));
+  if (Math.abs(dr - cr) > 0.009) throw new Error(`Entry not balanced (${dr} vs ${cr})`);
+  const ref = e.id ? doc(col("journal"), e.id) : doc(col("journal"));
+  batch.set(ref, {
+    createdAtMs: e.date, memo: e.memo || "", source: e.source || "manual", sourceId: e.sourceId || "",
+    partyType: e.partyType || "", partyId: e.partyId || "", lines, total: dr,
+    by: auth.currentUser?.email || "", at: Date.now(),
+  });
+  bumpBalances(batch, e.date, lines, 1);
+  return ref.id;
+}
+function bumpBalances(batch, date, lines, sign) {
+  const net = {};
+  lines.forEach((l) => { net[l.a] = r2((net[l.a] || 0) + sign * (l.dr - l.cr)); });
+  const inc = {};
+  Object.entries(net).forEach(([a, v]) => { if (v) inc[a] = increment(v); });
+  if (!Object.keys(inc).length) return;
+  const d = dayKey(date), m = d.slice(0, 7);
+  batch.set(doc(col("ledgerD"), d), { d, m, bal: inc }, { merge: true });
+  batch.set(doc(col("ledgerM"), m), { m, bal: inc }, { merge: true });
+}
+function unpostEntry(batch, e) {
+  batch.delete(doc(col("journal"), e.id));
+  bumpBalances(batch, e.date ?? e.createdAtMs, e.lines.map((l) => ({ a: l.a, dr: r2(l.dr || 0), cr: r2(l.cr || 0) })), -1);
+}
+// find a customer / supplier by name (or phone), or create it in the same batch
+function partyId(batch, coll, name, phone) {
+  const list = coll === "customers" ? S.customers : S.suppliers;
+  const p = String(phone || "").replace(/\D/g, "");
+  const hit = list.find((c) => c.name.trim().toLowerCase() === name.trim().toLowerCase()) || (p && list.find((c) => (c.phone || "").replace(/\D/g, "") === p));
+  if (hit) return hit.id;
+  const ref = doc(col(coll));
+  batch.set(ref, { name: name.trim(), phone: phone || "", balance: 0, createdAtMs: Date.now() });
+  list.push({ id: ref.id, name: name.trim(), phone: phone || "", balance: 0 });  // so a second use before sync finds it
+  return ref.id;
+}
+
+// ---------- entries made from business events ----------
+function saleEntry(s) {
+  const pay = s.payment === "transfer" ? "1010" : s.payment === "credit" ? "1100" : "1000";
+  const g = s.tax ? r2(s.gst) : 0, disc = r2(s.discount || 0);
+  const lines = [{ a: pay, dr: s.total }];
+  if (disc) lines.push({ a: "4100", dr: disc });
+  lines.push({ a: "4000", cr: r2(s.total + disc - g) });
+  if (g) lines.push({ a: "2100", cr: g });
+  const cogs = r2(s.lines.filter((l) => l.track).reduce((a, l) => a + l.cost * l.qty, 0));
+  if (cogs) lines.push({ a: "5000", dr: cogs }, { a: "1200", cr: cogs });
+  return { id: "sale-" + s.id, date: s.createdAtMs, memo: `Bill #${s.billNo}${s.customerName ? " – " + s.customerName : ""}`,
+    source: "sale", sourceId: s.id, partyType: s.customerId ? "customer" : "", partyId: s.customerId || "", lines };
+}
+function expenseEntry(x) {
+  const pay = x.paidBy === "transfer" ? "1010" : x.paidBy === "credit" ? "2000" : "1000";
+  const g = r2(x.gst || 0);
+  return { id: "exp-" + x.id, date: x.createdAtMs, memo: x.title + (x.supplier ? ` – ${x.supplier}` : ""),
+    source: "expense", sourceId: x.id, partyType: x.supplierId ? "supplier" : "", partyId: x.supplierId || "",
+    lines: [{ a: x.account || CAT_ACC[x.category] || "6900", dr: r2(x.amount - g) }, ...(g ? [{ a: "1300", dr: g }] : []), { a: pay, cr: x.amount }] };
+}
+function deleteSale(s) {
+  const batch = writeBatch(db);
+  batch.delete(doc(col("sales"), s.id));
+  if (s.posted) {
+    unpostEntry(batch, saleEntry(s));
+    s.lines.filter((l) => l.track).forEach((l) => { if (S.items.find((i) => i.id === l.id)) batch.update(doc(col("items"), l.id), { stock: increment(l.qty) }); });
+    if (s.customerId) batch.update(doc(col("customers"), s.customerId), { balance: increment(-s.total) });
+  }
+  batch.commit().catch(fail);
+}
+function deleteExpense(x) {
+  const batch = writeBatch(db);
+  batch.delete(doc(col("expenses"), x.id));
+  if (x.posted) {
+    unpostEntry(batch, expenseEntry(x));
+    if (x.paidBy === "credit" && x.supplierId) batch.update(doc(col("suppliers"), x.supplierId), { balance: increment(-x.amount) });
+  }
+  batch.commit().catch(fail);
+}
+
+// ---------- reading balances ----------
+function sumBal(list) {
+  const out = {};
+  list.forEach((b) => Object.entries(b || {}).forEach(([a, v]) => { out[a] = (out[a] || 0) + (Number(v) || 0); }));
+  Object.keys(out).forEach((a) => { out[a] = r2(out[a]); });
+  return out;
+}
+async function balancesBetween(fromMs, toMs) {          // movement from 00:00 of `from` until (not incl.) `to` day
+  const snap = await getDocs(query(col("ledgerD"), where("d", ">=", dayKey(fromMs)), where("d", "<", dayKey(toMs))));
+  return sumBal(snap.docs.map((d) => d.data().bal));
+}
+async function balancesAsOf(endMs) {                     // everything before the day of endMs
+  const endKey = dayKey(endMs), mKey = endKey.slice(0, 7);
+  const [ms, ds] = await Promise.all([
+    getDocs(query(col("ledgerM"), where("m", "<", mKey))),
+    getDocs(query(col("ledgerD"), where("m", "==", mKey))),
+  ]);
+  return sumBal([...ms.docs.map((d) => d.data().bal), ...ds.docs.filter((d) => d.data().d < endKey).map((d) => d.data().bal)]);
+}
+const tomorrow = () => nextDay(new Date()).getTime();
+
+// ---------- page navigation inside Accounts ----------
+const PAGE_TITLES = { sum: "Sales summary", gst: "GST report", pl: "Profit & Loss", bs: "Balance Sheet", tb: "Trial balance",
+  cash: "Cash & bank", cust: "Customers (credit)", supp: "Suppliers", party: "", stock: "Stock", buy: "Buy stock",
+  count: "Count stock", owner: "Owner money & opening", close: "Day closing", journal: "Journal", ledger: "General ledger",
+  coa: "Chart of accounts", manual: "Manual journal entry" };
+const PAGE_ID = (p) => (p === "sum" ? "#sumView" : p === "gst" ? "#gstView" : "#pg-" + p);
+const PAGE_BACK = { party: () => (S.party?.type === "supplier" ? "supp" : "cust"), buy: () => "stock", count: () => "stock" };
+function openPage(p) {
+  S.accPage = p;
+  $$("#view-accounts .acc-page").forEach((el) => el.classList.add("hidden"));
+  $(PAGE_ID(p)).classList.remove("hidden");
+  $("#accBar").classList.toggle("hidden", p === "hub");
+  $("#accTitle").textContent = p === "party" ? (S.party?.name || "") : PAGE_TITLES[p] || "";
+  window.scrollTo(0, 0);
+  ({ hub: loadHub, sum: loadAccounts, gst: loadGst, pl: loadPL, bs: loadBS, tb: loadTB, cash: loadCash, cust: renderCustomers,
+     supp: renderSuppliers, party: loadParty, stock: renderStock, buy: openBuy, count: renderCount, owner: loadOwner,
+     close: loadClose, journal: loadJournal, ledger: loadLedger, coa: loadCoa, manual: openManual }[p] || (() => {}))();
+}
+$("#pg-hub").addEventListener("click", (e) => { const b = e.target.closest("[data-pg]"); if (b) openPage(b.dataset.pg); });
+$("#accBackBtn").addEventListener("click", () => openPage(PAGE_BACK[S.accPage] ? PAGE_BACK[S.accPage]() : "hub"));
+
+const statBox = (l, v, c = "") => `<div class="stat ${c}"><span>${l}</span><b>${v}</b></div>`;
+async function loadHub() {
+  try {
+    const now = new Date();
+    const [bal, mon] = await Promise.all([balancesAsOf(tomorrow()), balancesBetween(new Date(now.getFullYear(), now.getMonth(), 1).getTime(), tomorrow())]);
+    const profit = profitOf(mon);
+    $("#hubKpis").innerHTML =
+      statBox("💵 Cash in hand", money(nb(bal, "1000"))) + statBox("🏦 Bank", money(nb(bal, "1010"))) +
+      statBox("👥 Customers owe you", money(nb(bal, "1100"))) + statBox("🚚 You owe suppliers", money(nb(bal, "2000"))) +
+      statBox("📦 Stock value", money(nb(bal, "1200"))) + (() => { const g = r2(nb(bal, "2100") - nb(bal, "1300")); return statBox(g >= 0 ? "🧾 GST to pay (net)" : "🧾 GST refundable (net)", money(Math.abs(g))); })() +
+      statBox("📈 Profit this month", money(profit), profit >= 0 ? "good big" : "bad big");
+  } catch (e) { fail(e); }
+}
+
+// ---------- period picker (reused) ----------
+function periodPicker(el, onChange) {
+  const P = { mode: "month" };
+  el.innerHTML = `<div class="seg pgrid">${[["month", "This month"], ["lastMonth", "Last month"], ["year", "This year"], ["custom", "Custom"]]
+    .map(([k, l]) => `<button type="button" data-pp="${k}" class="${k === "month" ? "active" : ""}">${l}</button>`).join("")}</div>
+    <div class="row hidden pp-custom"><input type="date" class="pp-from"><input type="date" class="pp-to"><button type="button" class="btn pp-go">Go</button></div>`;
+  el.querySelector(".pgrid").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pp]"); if (!b) return;
+    P.mode = b.dataset.pp;
+    el.querySelectorAll("[data-pp]").forEach((x) => x.classList.toggle("active", x === b));
+    el.querySelector(".pp-custom").classList.toggle("hidden", P.mode !== "custom");
+    if (P.mode === "custom") {
+      const n = new Date();
+      if (!el.querySelector(".pp-from").value) el.querySelector(".pp-from").value = toDateInput(new Date(n.getFullYear(), n.getMonth(), 1));
+      if (!el.querySelector(".pp-to").value) el.querySelector(".pp-to").value = toDateInput(n);
+    }
+    onChange();
+  });
+  el.querySelector(".pp-go").addEventListener("click", onChange);
+  P.range = () => {
+    const n = new Date(), y = n.getFullYear(), m = n.getMonth();
+    if (P.mode === "lastMonth") return [new Date(y, m - 1, 1), new Date(y, m, 1)];
+    if (P.mode === "year") return [new Date(y, 0, 1), new Date(y + 1, 0, 1)];
+    if (P.mode === "custom") {
+      const f = new Date((el.querySelector(".pp-from").value || toDateInput(n)) + "T00:00");
+      const t2 = new Date((el.querySelector(".pp-to").value || toDateInput(n)) + "T00:00");
+      return [f, nextDay(t2)];
+    }
+    return [new Date(y, m, 1), new Date(y, m + 1, 1)];
+  };
+  P.label = () => { const [f, t2] = P.range(); return `${fmtD(f)} to ${fmtD(new Date(t2 - 1))}`; };
+  return P;
+}
+
+// ---------- report helpers ----------
+const REP = {};   // last report rows for CSV
+const trow = (label, val, cls = "") => `<div class="rrow ${cls}"><span>${esc(label)}</span><b>${val}</b></div>`;
+function profitOf(bal) {
+  return r2(-Object.entries(bal).filter(([a]) => ["income", "cogs", "expense"].includes(acc(a).type)).reduce((s, [, v]) => s + v, 0));
+}
+
+// PROFIT & LOSS
+const plPick = periodPicker($("#plPeriod"), () => loadPL());
+async function loadPL() {
+  const [f, t2] = plPick.range();
+  let bal; try { bal = await balancesBetween(f.getTime(), t2.getTime()); } catch (e) { return fail(e); }
+  const of = (type) => S.coa.filter((a) => a.type === type && bal[a.code]);
+  const rows = [["Profit & Loss", plPick.label()]];
+  let h = `<div class="rhead">${esc(S.shop.name)} · ${plPick.label()}</div>`;
+  const section = (title, list, sign) => {
+    h += `<div class="rsec">${title}</div>`; rows.push([title]);
+    let t = 0;
+    list.forEach((a) => { const v = r2(sign * bal[a.code]); t += v; h += trow(`${a.code} ${a.name}`, money(v)); rows.push([`${a.code} ${a.name}`, v]); });
+    if (!list.length) h += `<div class="muted rrow"><span>–</span></div>`;
+    return r2(t);
+  };
+  const inc = section("Income", of("income"), -1);
+  h += trow("Net sales / income", money(inc), "rtotal"); rows.push(["Net income", inc]);
+  const cos = section("Cost of sales", of("cogs"), 1);
+  const gp = r2(inc - cos);
+  h += trow("Gross profit", money(gp), "rtotal"); rows.push(["Gross profit", gp]);
+  if (inc) h += `<div class="muted rrow"><span>Gross margin</span><span>${num(r2(gp / inc * 100))}%</span></div>`;
+  const ex = section("Expenses", of("expense"), 1);
+  h += trow("Total expenses", money(ex), "rtotal"); rows.push(["Total expenses", ex]);
+  const np = r2(gp - ex);
+  h += trow(np >= 0 ? "NET PROFIT" : "NET LOSS", money(np), "rgrand " + (np >= 0 ? "good" : "bad")); rows.push(["Net profit", np]);
+  $("#plBody").innerHTML = h; REP.pl = rows;
+}
+
+// BALANCE SHEET
+$("#bsDate").addEventListener("change", () => loadBS());
+async function loadBS() {
+  setToday("#bsDate");
+  const d = new Date($("#bsDate").value + "T00:00");
+  let bal; try { bal = await balancesAsOf(nextDay(d).getTime()); } catch (e) { return fail(e); }
+  const rows = [["Balance Sheet as at", fmtD(d)]];
+  let h = `<div class="rhead">${esc(S.shop.name)} · as at ${fmtD(d)}</div>`;
+  const section = (type) => {
+    const list = S.coa.filter((a) => a.type === type && bal[a.code]);
+    h += `<div class="rsec">${TYPE_NAME[type]}</div>`; rows.push([TYPE_NAME[type]]);
+    let t = 0;
+    list.forEach((a) => { const v = nb(bal, a.code); t += v; h += trow(`${a.code} ${a.name}`, money(v)); rows.push([`${a.code} ${a.name}`, v]); });
+    return r2(t);
+  };
+  const A = section("asset");
+  h += trow("Total assets", money(A), "rtotal"); rows.push(["Total assets", A]);
+  const L = section("liability");
+  h += trow("Total liabilities", money(L), "rtotal"); rows.push(["Total liabilities", L]);
+  const E0 = section("equity");
+  const P = profitOf(bal);
+  h += trow("Profit to date (retained)", money(P)); rows.push(["Profit to date", P]);
+  const E = r2(E0 + P);
+  h += trow("Total equity", money(E), "rtotal"); rows.push(["Total equity", E]);
+  const ok = Math.abs(A - (L + E)) < 0.01;
+  h += trow("Liabilities + equity", money(r2(L + E)), "rgrand");
+  h += `<div class="rcheck ${ok ? "good" : "bad"}">${ok ? "✔ Balanced: assets = liabilities + equity" : "⚠ Not balanced – check the journal"}</div>`;
+  $("#bsBody").innerHTML = h; REP.bs = rows;
+}
+
+// TRIAL BALANCE
+$("#tbDate").addEventListener("change", () => loadTB());
+async function loadTB() {
+  setToday("#tbDate");
+  const d = new Date($("#tbDate").value + "T00:00");
+  let bal; try { bal = await balancesAsOf(nextDay(d).getTime()); } catch (e) { return fail(e); }
+  let dr = 0, cr = 0;
+  const rows = [["Account", "Debit", "Credit"]];
+  let h = `<div class="rhead">Trial balance as at ${fmtD(d)}</div><div class="rrow rth"><span>Account</span><span class="c2">Debit</span><span class="c2">Credit</span></div>`;
+  S.coa.forEach((a) => {
+    const v = r2(bal[a.code] || 0); if (!v) return;
+    const D = v > 0 ? v : 0, C = v < 0 ? -v : 0; dr += D; cr += C;
+    h += `<div class="rrow"><span>${esc(a.code + " " + a.name)}</span><span class="c2">${D ? num(D) : ""}</span><span class="c2">${C ? num(C) : ""}</span></div>`;
+    rows.push([`${a.code} ${a.name}`, D || "", C || ""]);
+  });
+  dr = r2(dr); cr = r2(cr);
+  h += `<div class="rrow rgrand"><span>TOTAL</span><span class="c2">${num(dr)}</span><span class="c2">${num(cr)}</span></div>`;
+  h += `<div class="rcheck ${Math.abs(dr - cr) < 0.01 ? "good" : "bad"}">${Math.abs(dr - cr) < 0.01 ? "✔ Debits equal credits" : "⚠ Debits and credits differ"}</div>`;
+  rows.push(["TOTAL", dr, cr]);
+  $("#tbBody").innerHTML = h; REP.tb = rows;
+}
+
+// CASH & BANK
+S.move = "dep";
+$("#moveSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-mv]"); if (!b) return; S.move = b.dataset.mv; $$("#moveSeg button").forEach((x) => x.classList.toggle("active", x === b)); });
+async function loadCash() {
+  setToday("#mvDate");
+  try {
+    const bal = await balancesAsOf(tomorrow());
+    $("#cashStats").innerHTML = statBox("💵 Cash in hand", money(nb(bal, "1000")), "big") + statBox("🏦 Bank", money(nb(bal, "1010")), "big");
+  } catch (e) { fail(e); }
+}
+$("#moveForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const amt = r2($("#mvAmt").value); if (!amt) return;
+  const dep = S.move === "dep";
+  const batch = writeBatch(db);
+  postEntry(batch, { date: dateMs($("#mvDate").value), memo: dep ? "Cash deposited to bank" : "Cash withdrawn from bank", source: "transfer",
+    lines: [{ a: dep ? "1010" : "1000", dr: amt }, { a: dep ? "1000" : "1010", cr: amt }] });
+  batch.commit().catch(fail);
+  $("#mvAmt").value = ""; toast("Saved ✔"); setTimeout(loadCash, 300);
+});
+$("#pg-cash").addEventListener("click", (e) => { const b = e.target.closest("[data-ledger]"); if (b) { S.ledgerAcc = b.dataset.ledger; openPage("ledger"); } });
+
+// CUSTOMERS & SUPPLIERS
+function partyRows(list, owesLabel) {
+  return list.map((c) => `<div class="line tap" data-party="${c.id}">
+      <div class="grow"><b>${esc(c.name)}</b><div class="muted">${esc(c.phone || "")}</div></div>
+      <div class="right"><b class="${(c.balance || 0) > 0.009 ? "neg" : ""}">${money(c.balance || 0)}</b><span class="muted">${owesLabel}</span></div>
+    </div>`).join("") || `<div class="empty">None yet</div>`;
+}
+function renderCustomers() {
+  const q = $("#cuSearch").value.trim().toLowerCase();
+  const list = S.customers.filter((c) => !q || c.name.toLowerCase().includes(q) || (c.phone || "").includes(q))
+    .sort((a, b) => (b.balance || 0) - (a.balance || 0));
+  const tot = r2(S.customers.reduce((s, c) => s + (c.balance || 0), 0));
+  $("#custTotal").innerHTML = statBox("Customers owe you (total)", money(tot), "big") + statBox("Customers with credit", S.customers.filter((c) => (c.balance || 0) > 0.009).length);
+  $("#custList").innerHTML = partyRows(list, "owes");
+}
+function renderSuppliers() {
+  const list = [...S.suppliers].sort((a, b) => (b.balance || 0) - (a.balance || 0));
+  const tot = r2(S.suppliers.reduce((s, c) => s + (c.balance || 0), 0));
+  $("#suppTotal").innerHTML = statBox("You owe suppliers (total)", money(tot), "big");
+  $("#suppList").innerHTML = partyRows(list, "you owe");
+}
+$("#cuSearch").addEventListener("input", renderCustomers);
+$("#custForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = $("#cuName").value.trim(); if (!name) return;
+  if (S.customers.find((c) => c.name.toLowerCase() === name.toLowerCase())) return toast("A customer with this name already exists");
+  const open = r2($("#cuOpen").value);
+  const batch = writeBatch(db); const ref = doc(col("customers"));
+  batch.set(ref, { name, phone: $("#cuPhone").value.trim(), balance: open, createdAtMs: Date.now() });
+  if (open) postEntry(batch, { date: Date.now(), memo: `Opening balance – ${name}`, source: "opening", partyType: "customer", partyId: ref.id,
+    lines: [{ a: "1100", dr: open }, { a: "3200", cr: open }] });
+  batch.commit().catch(fail);
+  $("#custForm").reset(); toast("Customer added ✔");
+});
+$("#suppForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const name = $("#suName").value.trim(); if (!name) return;
+  if (S.suppliers.find((c) => c.name.toLowerCase() === name.toLowerCase())) return toast("A supplier with this name already exists");
+  const open = r2($("#suOpen").value);
+  const batch = writeBatch(db); const ref = doc(col("suppliers"));
+  batch.set(ref, { name, phone: $("#suPhone").value.trim(), tin: $("#suTin").value.trim(), balance: open, createdAtMs: Date.now() });
+  if (open) postEntry(batch, { date: Date.now(), memo: `Opening balance – ${name}`, source: "opening", partyType: "supplier", partyId: ref.id,
+    lines: [{ a: "3200", dr: open }, { a: "2000", cr: open }] });
+  batch.commit().catch(fail);
+  $("#suppForm").reset(); toast("Supplier added ✔");
+});
+["#custList", "#suppList"].forEach((sel) => $(sel).addEventListener("click", (e) => {
+  const r = e.target.closest("[data-party]"); if (!r) return;
+  const sup = sel === "#suppList";
+  const p = (sup ? S.suppliers : S.customers).find((c) => c.id === r.dataset.party); if (!p) return;
+  S.party = { ...p, type: sup ? "supplier" : "customer" };
+  openPage("party");
+}));
+
+S.ppPay = "cash";
+$("#ppSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-pay]"); if (!b) return; S.ppPay = b.dataset.pay; $$("#ppSeg button").forEach((x) => x.classList.toggle("active", x === b)); });
+async function loadParty() {
+  const P = S.party; if (!P) return;
+  const cur = (P.type === "supplier" ? S.suppliers : S.customers).find((c) => c.id === P.id) || P;
+  const cust = P.type === "customer";
+  $("#partyHead").innerHTML = statBox(cust ? "Owes you" : "You owe", money(cur.balance || 0), (cur.balance || 0) > 0.009 ? "bad big" : "good big")
+    + (cur.phone ? statBox("Phone", esc(cur.phone)) : "");
+  $("#partyPayTitle").textContent = cust ? "💰 Receive payment from customer" : "💸 Pay supplier";
+  $("#partyWaBtn").classList.toggle("hidden", !cust);
+  setToday("#ppDate");
+  let es = [];
+  try { es = (await getDocs(query(col("journal"), where("partyId", "==", P.id)))).docs.map((d) => ({ id: d.id, ...d.data() })); }
+  catch (e) { return fail(e); }
+  es.sort((a, b) => a.createdAtMs - b.createdAtMs);
+  const ctrl = cust ? "1100" : "2000";
+  let run = 0;
+  const rows = es.map((e) => {
+    const amt = r2(e.lines.filter((l) => l.a === ctrl).reduce((s, l) => s + (cust ? l.dr - l.cr : l.cr - l.dr), 0));
+    run = r2(run + amt);
+    return { e, amt, run };
+  }).filter((r) => r.amt);
+  S.partyRows = rows;
+  $("#partyStmt").innerHTML = rows.slice().reverse().map(({ e, amt, run }) => `<div class="line">
+      <div class="grow"><b>${esc(e.memo)}</b><div class="muted">${fmtD(new Date(e.createdAtMs))}</div></div>
+      <div class="right"><b class="${amt > 0 ? "neg" : "pos"}">${amt > 0 ? "+" : "−"}${num(Math.abs(amt))}</b><span class="muted">bal ${num(run)}</span></div>
+    </div>`).join("") || `<div class="empty">No transactions yet</div>`;
+}
+$("#partyPayForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const P = S.party, amt = r2($("#ppAmt").value); if (!P || !amt) return;
+  const cust = P.type === "customer", cashAcc = S.ppPay === "transfer" ? "1010" : "1000";
+  const note = $("#ppNote").value.trim();
+  const batch = writeBatch(db);
+  postEntry(batch, { date: dateMs($("#ppDate").value), source: cust ? "receipt" : "payment", partyType: P.type, partyId: P.id,
+    memo: `${cust ? "Payment received" : "Paid supplier"} (${S.ppPay === "transfer" ? "transfer" : "cash"})${note ? " – " + note : ""}`,
+    lines: cust ? [{ a: cashAcc, dr: amt }, { a: "1100", cr: amt }] : [{ a: "2000", dr: amt }, { a: cashAcc, cr: amt }] });
+  batch.update(doc(col(cust ? "customers" : "suppliers"), P.id), { balance: increment(-amt) });
+  batch.commit().catch(fail);
+  $("#ppAmt").value = ""; $("#ppNote").value = "";
+  toast("Payment saved ✔"); setTimeout(loadParty, 400);
+});
+$("#partyWaBtn").addEventListener("click", () => {
+  const P = S.party; if (!P) return;
+  const cur = S.customers.find((c) => c.id === P.id) || P;
+  const L = [`*${S.shop.name}* – account statement`, `Customer: ${cur.name}`, fmtDateTime(new Date()), "--------------------------"];
+  (S.partyRows || []).slice(-15).forEach(({ e, amt, run }) => L.push(`${fmtD(new Date(e.createdAtMs))} ${e.memo}\n   ${amt > 0 ? "+" : "−"}${num(Math.abs(amt))}  (bal ${num(run)})`));
+  L.push("--------------------------", `*Balance to pay: ${money(cur.balance || 0)}*`);
+  const banks = billBanks();
+  if (banks.length) { L.push("", "🏦 *Pay by bank transfer:*"); banks.forEach((b) => { L.push(`${b.bank} – ${b.name}`); L.push(b.number); }); }
+  window.open(waUrl(cur.phone || "", L.join("\n")), "_blank");
+});
+function showCustOwes() {
+  const n = $("#coCustName").value.trim().toLowerCase();
+  const c = S.customers.find((x) => x.name.toLowerCase() === n);
+  $("#coCustOwes").textContent = c ? `${c.name} already owes ${money(c.balance || 0)}` : n ? "New customer – will be added" : "";
+  if (c && c.phone && !$("#coPhone").value) $("#coPhone").value = c.phone;
+}
+$("#coCustName").addEventListener("input", showCustOwes);
+
+// STOCK
+const tracked = () => S.items.filter((i) => i.track);
+function showStockFields(it) {
+  const already = !!it?.track;
+  $("#itemOpenLbl").classList.toggle("hidden", already || !$("#itemTrack").checked);
+  $("#itemStockInfo").classList.toggle("hidden", !already);
+  $("#itemStockInfo").textContent = already ? `In stock: ${num(it.stock || 0)}. Use Accounts → Stock to buy or count.` : "";
+}
+$("#itemTrack").addEventListener("change", () => showStockFields(S.items.find((i) => i.id === S.editItemId)));
+function renderStock() {
+  const list = tracked();
+  const val = r2(list.reduce((s, i) => s + (i.stock || 0) * (i.cost || 0), 0));
+  $("#stockStats").innerHTML = statBox("Stock value (at cost)", money(val), "big") + statBox("Items tracked", list.length)
+    + statBox("Out of stock", list.filter((i) => (i.stock || 0) <= 0).length, list.some((i) => (i.stock || 0) <= 0) ? "bad" : "");
+  $("#stockList").innerHTML = list.map((i) => `<div class="line">
+      <div class="grow"><b>${esc(i.name)}</b><div class="muted">cost ${num(i.cost || 0)} · value ${num(r2((i.stock || 0) * (i.cost || 0)))}</div></div>
+      <b class="${(i.stock || 0) <= 0 ? "neg" : ""}">${num(i.stock || 0)}</b></div>`).join("") || `<div class="empty">No items are tracked yet</div>`;
+}
+$("#goBuy").addEventListener("click", () => openPage("buy"));
+$("#goCount").addEventListener("click", () => openPage("count"));
+
+S.buyPay = "cash";
+$("#buyPaySeg").addEventListener("click", (e) => { const b = e.target.closest("[data-pay]"); if (!b) return; S.buyPay = b.dataset.pay; $$("#buyPaySeg button").forEach((x) => x.classList.toggle("active", x === b)); });
+function buyLine() {
+  const row = document.createElement("div");
+  row.className = "row buy-line";
+  row.innerHTML = `<select class="bl-item">${S.items.map((i) => `<option value="${i.id}">${esc(i.name)}</option>`).join("")}</select>
+    <input class="bl-qty narrow" type="number" inputmode="decimal" min="0" step="any" placeholder="Qty">
+    <input class="bl-cost narrow" type="number" inputmode="decimal" min="0" step="any" placeholder="Cost each">
+    <button type="button" class="x">✕</button>`;
+  row.querySelector(".bl-item").addEventListener("change", () => { const it = S.items.find((i) => i.id === row.querySelector(".bl-item").value); if (it?.cost) row.querySelector(".bl-cost").value = it.cost; buyCalc(); });
+  row.querySelector(".x").addEventListener("click", () => { row.remove(); buyCalc(); });
+  row.querySelectorAll("input").forEach((i) => i.addEventListener("input", buyCalc));
+  $("#buyLines").appendChild(row);
+  row.querySelector(".bl-item").dispatchEvent(new Event("change"));
+}
+const readBuy = () => $$("#buyLines .buy-line").map((r) => ({ id: r.querySelector(".bl-item").value, qty: Number(r.querySelector(".bl-qty").value) || 0, cost: Number(r.querySelector(".bl-cost").value) || 0 })).filter((l) => l.qty > 0);
+function buyCalc() {
+  const net = r2(readBuy().reduce((s, l) => s + l.qty * l.cost, 0));
+  if ($("#buyGstChk").checked && !S.buyGstEdited) $("#buyGst").value = r2(net * (Number(S.shop.gstRate) || 0) / 100) || "";
+  const g = $("#buyGstChk").checked ? r2($("#buyGst").value) : 0;
+  $("#buyNet").textContent = money(net); $("#buyTotal").textContent = money(r2(net + g));
+}
+$("#buyGstChk").addEventListener("change", () => { $("#buyGstLbl").classList.toggle("hidden", !$("#buyGstChk").checked); S.buyGstEdited = false; buyCalc(); });
+$("#buyGst").addEventListener("input", () => { S.buyGstEdited = true; buyCalc(); });
+$("#buyAddLine").addEventListener("click", buyLine);
+function openBuy() {
+  if (!S.items.length) { toast("Add items first in 📦 Items"); return openPage("stock"); }
+  $("#buyForm").reset(); $("#buyLines").innerHTML = ""; S.buyGstEdited = false; $("#buyGstLbl").classList.add("hidden");
+  $("#buyDate").value = toDateInput(new Date()); buyLine(); buyCalc();
+}
+$("#buyForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const lines = readBuy(); if (!lines.length) return toast("Enter quantity for at least one item");
+  const sup = $("#buySupplier").value.trim();
+  if (S.buyPay === "credit" && !sup) return toast("Enter the supplier for a credit purchase");
+  const net = r2(lines.reduce((s, l) => s + l.qty * l.cost, 0));
+  const g = $("#buyGstChk").checked ? r2($("#buyGst").value) : 0, total = r2(net + g);
+  const date = dateMs($("#buyDate").value);
+  const batch = writeBatch(db);
+  const supplierId = sup ? partyId(batch, "suppliers", sup, "") : "";
+  const pRef = doc(col("purchases"));
+  const names = lines.map((l) => `${S.items.find((i) => i.id === l.id)?.name || "?"} ×${num(l.qty)}`).join(", ");
+  batch.set(pRef, { lines, amount: total, gst: g, title: `Stock: ${names}`, supplier: sup, supplierId, invoiceNo: $("#buyInv").value.trim(),
+    supplierTin: S.suppliers.find((s) => s.id === supplierId)?.tin || "", paidBy: S.buyPay, createdAtMs: date });
+  const pay = S.buyPay === "transfer" ? "1010" : S.buyPay === "credit" ? "2000" : "1000";
+  postEntry(batch, { id: "pur-" + pRef.id, date, memo: `Stock purchase – ${names}${sup ? " – " + sup : ""}`, source: "purchase", sourceId: pRef.id,
+    partyType: supplierId ? "supplier" : "", partyId: supplierId, lines: [{ a: "1200", dr: net }, ...(g ? [{ a: "1300", dr: g }] : []), { a: pay, cr: total }] });
+  if (S.buyPay === "credit") batch.update(doc(col("suppliers"), supplierId), { balance: increment(total) });
+  // weighted average cost
+  const byItem = {};
+  lines.forEach((l) => { const b = byItem[l.id] ||= { qty: 0, val: 0 }; b.qty += l.qty; b.val += l.qty * l.cost; });
+  Object.entries(byItem).forEach(([id, b]) => {
+    const it = S.items.find((i) => i.id === id) || {};
+    const oldQ = Math.max(0, it.stock || 0), oldC = Number(it.cost) || 0;
+    const newCost = r2((oldQ * oldC + b.val) / (oldQ + b.qty));
+    batch.update(doc(col("items"), id), { stock: increment(b.qty), cost: newCost, track: true });
+  });
+  batch.commit().catch(fail);
+  toast(`Purchase saved ✔ ${money(total)}`); openPage("stock");
+});
+function renderCount() {
+  $("#countList").innerHTML = tracked().map((i) => `<div class="line">
+      <div class="grow"><b>${esc(i.name)}</b><div class="muted">App says: ${num(i.stock || 0)}</div></div>
+      <input class="narrow cnt" data-id="${i.id}" type="number" inputmode="decimal" min="0" step="any" value="${i.stock || 0}">
+    </div>`).join("") || `<div class="empty">No items are tracked yet</div>`;
+}
+$("#countSave").addEventListener("click", () => {
+  const batch = writeBatch(db); let loss = 0; const notes = [];
+  $$("#countList .cnt").forEach((inp) => {
+    const it = S.items.find((i) => i.id === inp.dataset.id); if (!it) return;
+    const real = Number(inp.value) || 0, diff = r2(real - (it.stock || 0)); if (!diff) return;
+    loss = r2(loss - diff * (it.cost || 0)); notes.push(`${it.name} ${diff > 0 ? "+" : ""}${num(diff)}`);
+    batch.update(doc(col("items"), it.id), { stock: real });
+  });
+  if (!notes.length) return toast("No differences");
+  if (loss) postEntry(batch, { date: Date.now(), memo: `Stock count: ${notes.join(", ")}`, source: "adjust",
+    lines: loss > 0 ? [{ a: "6800", dr: loss }, { a: "1200", cr: loss }] : [{ a: "1200", dr: -loss }, { a: "6800", cr: -loss }] });
+  batch.commit().catch(fail);
+  toast(loss > 0 ? `Stock loss ${money(loss)} recorded` : loss < 0 ? `Stock gain ${money(-loss)} recorded` : "Stock updated ✔");
+  openPage("stock");
+});
+
+// OWNER & OPENING
+S.own = "in"; S.owPay = "cash";
+$("#ownSeg").addEventListener("click", (e) => { const b = e.target.closest("[data-ow]"); if (!b) return; S.own = b.dataset.ow; $$("#ownSeg button").forEach((x) => x.classList.toggle("active", x === b)); });
+$("#owPaySeg").addEventListener("click", (e) => { const b = e.target.closest("[data-pay]"); if (!b) return; S.owPay = b.dataset.pay; $$("#owPaySeg button").forEach((x) => x.classList.toggle("active", x === b)); });
+async function loadOwner() {
+  setToday("#owDate", "#opDate");
+  let es = [];
+  try { es = (await getDocs(query(col("journal"), where("source", "in", ["capital", "drawing", "opening"])))).docs.map((d) => ({ id: d.id, ...d.data() })); }
+  catch (e) { return fail(e); }
+  es.sort((a, b) => b.createdAtMs - a.createdAtMs);
+  $("#ownerList").innerHTML = es.map((e) => `<div class="line"><div class="grow"><b>${esc(e.memo)}</b><div class="muted">${fmtD(new Date(e.createdAtMs))}</div></div><b>${money(e.total)}</b></div>`).join("") || `<div class="empty">Nothing yet</div>`;
+}
+$("#ownerForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const amt = r2($("#owAmt").value); if (!amt) return;
+  const into = S.own === "in", cashAcc = S.owPay === "transfer" ? "1010" : "1000", note = $("#owNote").value.trim();
+  const batch = writeBatch(db);
+  postEntry(batch, { date: dateMs($("#owDate").value), source: into ? "capital" : "drawing",
+    memo: (into ? "Owner put money in" : "Owner took money out") + (note ? " – " + note : ""),
+    lines: into ? [{ a: cashAcc, dr: amt }, { a: "3000", cr: amt }] : [{ a: "3100", dr: amt }, { a: cashAcc, cr: amt }] });
+  batch.commit().catch(fail);
+  $("#owAmt").value = ""; $("#owNote").value = ""; toast("Saved ✔"); setTimeout(loadOwner, 300);
+});
+$("#openForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const c = r2($("#opCash").value), b = r2($("#opBank").value);
+  if (!c && !b) return toast("Enter cash or bank");
+  if (!confirm(`Save opening balances: cash ${money(c)}, bank ${money(b)}?`)) return;
+  const batch = writeBatch(db);
+  postEntry(batch, { date: new Date($("#opDate").value + "T00:01").getTime(), memo: "Opening balances (cash & bank)", source: "opening",
+    lines: [...(c ? [{ a: "1000", dr: c }] : []), ...(b ? [{ a: "1010", dr: b }] : []), { a: "3200", cr: r2(c + b) }] });
+  batch.commit().catch(fail);
+  $("#opCash").value = ""; $("#opBank").value = ""; toast("Opening balances saved ✔"); setTimeout(loadOwner, 300);
+});
+
+// DAY CLOSING
+async function loadClose() {
+  try {
+    const [bal, today, past] = await Promise.all([
+      balancesAsOf(tomorrow()),
+      balancesBetween(startOfDay(new Date()).getTime(), tomorrow()),
+      getDocs(query(col("dayclose"), orderBy("createdAtMs", "desc"), limit(30))),
+    ]);
+    S.expectedCash = nb(bal, "1000");
+    $("#closeStats").innerHTML = statBox("Cash that should be in the drawer", money(S.expectedCash), "big")
+      + statBox("Cash in / out today", money(r2(today["1000"] || 0)));
+    $("#closeList").innerHTML = past.docs.map((d) => { const c = d.data(); return `<div class="line">
+      <div class="grow"><b>${fmtDateTime(new Date(c.createdAtMs))}</b><div class="muted">expected ${num(c.expected)} · counted ${num(c.counted)}${c.note ? " · " + esc(c.note) : ""}</div></div>
+      <b class="${c.diff < 0 ? "neg" : c.diff > 0 ? "pos" : ""}">${c.diff ? (c.diff > 0 ? "+" : "") + num(c.diff) : "✔"}</b></div>`; }).join("") || `<div class="empty">No closings yet</div>`;
+    clDiff();
+  } catch (e) { fail(e); }
+}
+function clDiff() {
+  const v = $("#clCount").value; if (v === "") { $("#clDiff").textContent = "–"; return; }
+  const d = r2(Number(v) - (S.expectedCash || 0));
+  $("#clDiff").textContent = d === 0 ? "✔ Exact" : `${d > 0 ? "Over +" : "Short −"}${money(Math.abs(d))}`;
+  $("#clDiff").className = d < 0 ? "neg" : d > 0 ? "pos" : "";
+}
+$("#clCount").addEventListener("input", clDiff);
+$("#closeForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const counted = r2($("#clCount").value), expected = S.expectedCash || 0, diff = r2(counted - expected);
+  const batch = writeBatch(db);
+  if (diff) postEntry(batch, { date: Date.now(), memo: `Day closing – cash ${diff > 0 ? "over" : "short"}`, source: "dayclose",
+    lines: diff > 0 ? [{ a: "1000", dr: diff }, { a: "6950", cr: diff }] : [{ a: "6950", dr: -diff }, { a: "1000", cr: -diff }] });
+  batch.set(doc(col("dayclose")), { createdAtMs: Date.now(), expected, counted, diff, note: $("#clNote").value.trim(), by: auth.currentUser?.email || "" });
+  batch.commit().catch(fail);
+  $("#closeForm").reset(); toast(diff ? `Day closed – ${diff > 0 ? "over" : "short"} ${money(Math.abs(diff))}` : "Day closed ✔ cash is exact");
+  setTimeout(loadClose, 400);
+});
+
+// JOURNAL
+const jnPick = periodPicker($("#jnPeriod"), () => loadJournal());
+const SRC_TAG = { sale: "Sale", expense: "Expense", purchase: "Stock buy", receipt: "Receipt", payment: "Payment", manual: "Manual",
+  opening: "Opening", capital: "Capital", drawing: "Drawing", adjust: "Stock adj.", dayclose: "Day close", transfer: "Transfer", gst: "GST" };
+async function journalIn(f, t2) {
+  const snap = await getDocs(query(col("journal"), where("createdAtMs", ">=", f.getTime()), where("createdAtMs", "<", t2.getTime()), orderBy("createdAtMs", "desc")));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+async function loadJournal() {
+  const [f, t2] = jnPick.range();
+  let es; try { es = await journalIn(f, t2); } catch (e) { return fail(e); }
+  S.journal = es;
+  $("#jnList").innerHTML = es.map((e) => `<div class="jentry">
+      <div class="row between"><b>${esc(e.memo)}</b><span class="tag">${SRC_TAG[e.source] || e.source}</span></div>
+      <div class="muted">${fmtDateTime(new Date(e.createdAtMs))}${e.by ? " · " + esc(e.by) : ""}</div>
+      ${e.lines.map((l) => `<div class="jl"><span>${esc(accLabel(l.a))}</span><span class="c2">${l.dr ? num(l.dr) : ""}</span><span class="c2">${l.cr ? num(l.cr) : ""}</span></div>`).join("")}
+      ${e.source === "manual" || e.source === "transfer" || e.source === "capital" || e.source === "drawing" ? `<button class="btn small danger-outline" data-unpost="${e.id}">Delete entry</button>` : ""}
+    </div>`).join("") || `<div class="empty">No entries in this period</div>`;
+}
+$("#jnList").addEventListener("click", (e) => {
+  const id = e.target.dataset.unpost; if (!id) return;
+  const en = (S.journal || []).find((x) => x.id === id);
+  if (!en || !confirm("Delete this journal entry? Balances will be reversed.")) return;
+  const batch = writeBatch(db); unpostEntry(batch, en); batch.commit().catch(fail);
+  toast("Entry deleted"); setTimeout(loadJournal, 300);
+});
+
+// GENERAL LEDGER
+const lgPick = periodPicker($("#lgPeriod"), () => loadLedger());
+function fillAccSelects() {
+  const opts = (types) => S.coa.filter((a) => !types || types.includes(a.type)).map((a) => `<option value="${a.code}">${esc(a.code + " " + a.name)}</option>`).join("");
+  const keep = $("#lgAcc").value;
+  $("#lgAcc").innerHTML = opts(); $("#lgAcc").value = keep || "1000";
+  const xk = $("#xAcc").value;
+  $("#xAcc").innerHTML = `<option value="">Account: automatic (from category)</option>` + opts(["expense", "cogs", "asset"]);
+  $("#xAcc").value = xk;
+  $$("#mjLines .mj-acc").forEach((s) => { const v = s.value; s.innerHTML = opts(); s.value = v; });
+}
+$("#lgAcc").addEventListener("change", () => { S.ledgerAcc = $("#lgAcc").value; loadLedger(); });
+async function loadLedger() {
+  if (S.ledgerAcc) $("#lgAcc").value = S.ledgerAcc;
+  const a = $("#lgAcc").value || "1000";
+  const [f, t2] = lgPick.range();
+  let open, es;
+  try { [open, es] = await Promise.all([balancesAsOf(f.getTime()), journalIn(f, t2)]); } catch (e) { return fail(e); }
+  const sign = DEBIT_TYPES.has(acc(a).type) ? 1 : -1;
+  let run = r2((open[a] || 0) * sign);
+  const rows = [["Date", "Description", "Debit", "Credit", "Balance"], ["", "Opening balance", "", "", run]];
+  let h = `<div class="rhead">${esc(accLabel(a))} · ${lgPick.label()}</div>
+    <div class="rrow rth"><span>Date / description</span><span class="c2">Debit</span><span class="c2">Credit</span><span class="c2">Balance</span></div>
+    <div class="rrow"><span><i>Opening balance</i></span><span class="c2"></span><span class="c2"></span><span class="c2">${num(run)}</span></div>`;
+  es.slice().reverse().forEach((e) => e.lines.filter((l) => l.a === a).forEach((l) => {
+    run = r2(run + sign * (l.dr - l.cr));
+    h += `<div class="rrow"><span>${fmtD(new Date(e.createdAtMs))} · ${esc(e.memo)}</span><span class="c2">${l.dr ? num(l.dr) : ""}</span><span class="c2">${l.cr ? num(l.cr) : ""}</span><span class="c2">${num(run)}</span></div>`;
+    rows.push([fmtD(new Date(e.createdAtMs)), e.memo, l.dr || "", l.cr || "", run]);
+  }));
+  h += `<div class="rrow rgrand"><span>Closing balance</span><span class="c2"></span><span class="c2"></span><span class="c2">${num(run)}</span></div>`;
+  rows.push(["", "Closing balance", "", "", run]);
+  $("#lgBody").innerHTML = h; REP.ledger = rows;
+}
+
+// CHART OF ACCOUNTS
+async function loadCoa() {
+  let bal; try { bal = await balancesAsOf(tomorrow()); } catch (e) { return fail(e); }
+  let h = "";
+  Object.keys(TYPE_NAME).forEach((type) => {
+    h += `<div class="rsec">${TYPE_NAME[type]}</div>`;
+    S.coa.filter((a) => a.type === type).forEach((a) => {
+      h += `<div class="rrow tap" data-acc="${a.code}"><span>${esc(a.code + " " + a.name)}${a.custom ? " ✎" : ""}</span><b>${money(nb(bal, a.code))}</b></div>`;
+    });
+  });
+  $("#coaList").innerHTML = h;
+}
+$("#coaList").addEventListener("click", (e) => { const r = e.target.closest("[data-acc]"); if (r) { S.ledgerAcc = r.dataset.acc; openPage("ledger"); } });
+$("#coaForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const code = $("#coaCode").value.trim(), name = $("#coaName").value.trim();
+  if (!/^\d{3,6}$/.test(code)) return toast("Code must be 3–6 digits");
+  if (S.coa.find((a) => a.code === code)) return toast("That code is already used");
+  setDoc(doc(col("coa"), code), { name, type: $("#coaType").value }).catch(fail);
+  $("#coaForm").reset(); toast("Account added ✔"); setTimeout(loadCoa, 300);
+});
+
+// MANUAL JOURNAL ENTRY
+function mjLine() {
+  const row = document.createElement("div");
+  row.className = "row mj-line";
+  row.innerHTML = `<select class="mj-acc"></select>
+    <input class="mj-dr narrow" type="number" inputmode="decimal" min="0" step="any" placeholder="Debit">
+    <input class="mj-cr narrow" type="number" inputmode="decimal" min="0" step="any" placeholder="Credit">
+    <button type="button" class="x">✕</button>`;
+  row.querySelector(".mj-acc").innerHTML = S.coa.map((a) => `<option value="${a.code}">${esc(a.code + " " + a.name)}</option>`).join("");
+  row.querySelector(".x").addEventListener("click", () => { row.remove(); mjCalc(); });
+  row.querySelectorAll("input").forEach((i) => i.addEventListener("input", mjCalc));
+  $("#mjLines").appendChild(row);
+}
+const readMj = () => $$("#mjLines .mj-line").map((r) => ({ a: r.querySelector(".mj-acc").value, dr: r2(r.querySelector(".mj-dr").value), cr: r2(r.querySelector(".mj-cr").value) })).filter((l) => l.dr || l.cr);
+function mjCalc() {
+  const ls = readMj(), dr = r2(ls.reduce((s, l) => s + l.dr, 0)), cr = r2(ls.reduce((s, l) => s + l.cr, 0));
+  $("#mjDr").textContent = num(dr); $("#mjCr").textContent = num(cr);
+  $("#mjOk").textContent = dr && dr === cr ? "✔ Balanced" : dr || cr ? `⚠ Difference ${num(Math.abs(r2(dr - cr)))}` : "";
+  $("#mjOk").className = dr && dr === cr ? "pos" : "neg";
+}
+$("#mjAdd").addEventListener("click", mjLine);
+function openManual() { setToday("#mjDate"); if (!$$("#mjLines .mj-line").length) { mjLine(); mjLine(); } mjCalc(); }
+$("#mjForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const ls = readMj();
+  const dr = r2(ls.reduce((s, l) => s + l.dr, 0)), cr = r2(ls.reduce((s, l) => s + l.cr, 0));
+  if (!dr || dr !== cr) return toast("Debits must equal credits");
+  if (ls.some((l) => l.dr && l.cr)) return toast("A line can have a debit or a credit, not both");
+  const batch = writeBatch(db);
+  try { postEntry(batch, { date: dateMs($("#mjDate").value), memo: $("#mjMemo").value.trim(), source: "manual", lines: ls }); }
+  catch (err) { return toast(err.message); }
+  batch.commit().catch(fail);
+  $("#mjMemo").value = ""; $("#mjLines").innerHTML = ""; mjLine(); mjLine(); mjCalc();
+  toast("Entry posted ✔");
+});
+
+// GST payment to MIRA (clears output GST against input GST, pays the rest from bank)
+$("#gstPayBtn").addEventListener("click", () => {
+  const R = S.gst; if (!R) return;
+  const out = R.outGst, inp = R.inGst;
+  if (!out && !inp) return toast("No GST in this period");
+  const net = r2(out - inp);
+  const msg = net > 0 ? `Record paying ${money(net)} GST to MIRA from the bank for ${fmtD(R.from)} – ${fmtD(R.to)}?`
+    : `GST collected ${money(out)} is offset against GST paid. ${money(-net)} stays as claimable for later. Record it?`;
+  if (!confirm(msg)) return;
+  const lines = net > 0 ? [{ a: "2100", dr: out }, { a: "1300", cr: inp }, { a: "1010", cr: net }] : [{ a: "2100", dr: out }, { a: "1300", cr: out }];
+  const batch = writeBatch(db);
+  postEntry(batch, { date: Date.now(), memo: `GST return ${fmtD(R.from)} – ${fmtD(R.to)}${net > 0 ? " – paid to MIRA" : " – offset"}`, source: "gst", lines });
+  batch.commit().catch(fail);
+  toast("GST entry posted ✔");
+});
+
+// CSV + print for reports
+$("#view-accounts").addEventListener("click", (e) => {
+  const c = e.target.closest("[data-csv]");
+  if (c) {
+    let rows = REP[c.dataset.csv];
+    if (c.dataset.csv === "journal") rows = [["Date", "Description", "Source", "Account", "Debit", "Credit"],
+      ...(S.journal || []).flatMap((en) => en.lines.map((l) => [fmtDateTime(new Date(en.createdAtMs)), en.memo, en.source, accLabel(l.a), l.dr || "", l.cr || ""]))];
+    if (!rows) return;
+    const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    downloadBlob(new Blob(["﻿" + rows.map((r) => r.map(q).join(",")).join("\n")], { type: "text/csv" }), `${c.dataset.csv}-${toDateInput(new Date())}.csv`);
+  }
+  const p = e.target.closest("[data-print]");
+  if (p) {
+    const w = window.open("", "_blank"); if (!w) return toast("Allow pop-ups to print");
+    w.document.write(`<html><head><title>${esc($("#accTitle").textContent)}</title><style>
+      body{font-family:sans-serif;padding:18px;font-size:13px;max-width:720px;margin:auto}
+      .rrow{display:flex;gap:10px;padding:4px 0;border-bottom:1px solid #eee}.rrow span:first-child{flex:1}.c2{width:90px;text-align:right}
+      .rsec{font-weight:700;margin-top:14px;font-size:15px}.rhead{font-size:17px;font-weight:700;margin-bottom:8px}
+      .rtotal{font-weight:700;border-top:1px solid #999}.rgrand{font-weight:800;font-size:15px;border-top:2px solid #000}
+      .rcheck{margin-top:10px;font-weight:700}</style></head><body><h2>${esc($("#accTitle").textContent)}</h2>${$("#" + p.dataset.print).innerHTML}
+      <script>window.onload=()=>window.print()<\/script></body></html>`);
+    w.document.close();
+  }
+});
+fillAccSelects();

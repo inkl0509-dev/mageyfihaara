@@ -119,11 +119,40 @@
 
     <!-- ACCOUNTS -->
     <div id="view-accounts" class="view hidden">
-      <div class="seg" id="acctModeSeg">
-        <button data-am="sum" class="active">📊 Summary</button>
-        <button data-am="gst">🧾 GST report</button>
+      <div id="accBar" class="accbar hidden">
+        <button type="button" class="btn small" id="accBackBtn">‹ Back</button>
+        <b id="accTitle" class="grow"></b>
       </div>
-      <div id="sumView">
+
+      <div id="pg-hub" class="acc-page">
+        <div id="hubKpis" class="stats"></div>
+        <h3>📅 Every day</h3>
+        <div class="tiles">
+          <button data-pg="sum">📊<span>Sales summary</span></button>
+          <button data-pg="close">🧮<span>Day closing</span></button>
+          <button data-pg="cash">💵<span>Cash &amp; bank</span></button>
+          <button data-pg="cust">👥<span>Customers (credit)</span></button>
+          <button data-pg="supp">🚚<span>Suppliers</span></button>
+          <button data-pg="stock">📦<span>Stock</span></button>
+        </div>
+        <h3>📑 Reports</h3>
+        <div class="tiles">
+          <button data-pg="pl">📈<span>Profit &amp; Loss</span></button>
+          <button data-pg="bs">⚖️<span>Balance Sheet</span></button>
+          <button data-pg="gst">🧾<span>GST report</span></button>
+          <button data-pg="tb">📋<span>Trial balance</span></button>
+        </div>
+        <h3>🧑‍💼 Owner &amp; accountant</h3>
+        <div class="tiles">
+          <button data-pg="owner">👤<span>Owner money &amp; opening</span></button>
+          <button data-pg="journal">📒<span>Journal</span></button>
+          <button data-pg="ledger">📖<span>General ledger</span></button>
+          <button data-pg="coa">🗂<span>Chart of accounts</span></button>
+          <button data-pg="manual">✍️<span>Manual journal entry</span></button>
+        </div>
+      </div>
+
+      <div id="sumView" class="acc-page hidden">
       <div class="seg scroll" id="periodSeg">
         <button data-p="today" class="active" data-i18n="today">Today</button>
         <button data-p="yesterday" data-i18n="yesterday">Yesterday</button>
@@ -151,7 +180,7 @@
       </div>
 
       <!-- GST REPORT -->
-      <div id="gstView" class="hidden stack">
+      <div id="gstView" class="acc-page hidden stack">
         <div class="seg" id="gstPeriodSeg">
           <button data-g="month" class="active">This month</button>
           <button data-g="lastMonth">Last month</button>
@@ -174,7 +203,232 @@
           <button class="btn grow" id="gstCsv">⬇ Download GST CSV</button>
           <button class="btn grow" id="gstPrint">🖨 Print report</button>
         </div>
+        <button class="btn big" id="gstPayBtn">🏛 Record GST payment to MIRA</button>
       </div>
+
+      <!-- PROFIT & LOSS -->
+      <div id="pg-pl" class="acc-page hidden stack">
+        <div id="plPeriod"></div>
+        <div id="plBody" class="report"></div>
+        <div class="row"><button class="btn grow" data-csv="pl">⬇ CSV</button><button class="btn grow" data-print="plBody">🖨 Print</button></div>
+      </div>
+
+      <!-- BALANCE SHEET -->
+      <div id="pg-bs" class="acc-page hidden stack">
+        <label>As at date <input type="date" id="bsDate"></label>
+        <div id="bsBody" class="report"></div>
+        <div class="row"><button class="btn grow" data-csv="bs">⬇ CSV</button><button class="btn grow" data-print="bsBody">🖨 Print</button></div>
+      </div>
+
+      <!-- TRIAL BALANCE -->
+      <div id="pg-tb" class="acc-page hidden stack">
+        <label>As at date <input type="date" id="tbDate"></label>
+        <div id="tbBody" class="report"></div>
+        <div class="row"><button class="btn grow" data-csv="tb">⬇ CSV</button><button class="btn grow" data-print="tbBody">🖨 Print</button></div>
+      </div>
+
+      <!-- CASH & BANK -->
+      <div id="pg-cash" class="acc-page hidden stack">
+        <div id="cashStats" class="stats"></div>
+        <form id="moveForm" class="box stack">
+          <h3 style="margin:0">🔁 Move money</h3>
+          <div class="seg" id="moveSeg">
+            <button type="button" data-mv="dep" class="active">💵→🏦 Deposit cash to bank</button>
+            <button type="button" data-mv="wd">🏦→💵 Withdraw from bank</button>
+          </div>
+          <div class="row">
+            <label>Amount (MVR) <input id="mvAmt" type="number" inputmode="decimal" min="0" step="any" required></label>
+            <label>Date <input id="mvDate" type="date" required></label>
+          </div>
+          <button class="btn primary big">✔ Save</button>
+        </form>
+        <div class="row">
+          <button class="btn grow" data-ledger="1000">📖 Cash book</button>
+          <button class="btn grow" data-ledger="1010">📖 Bank book</button>
+        </div>
+      </div>
+
+      <!-- CUSTOMERS / SUPPLIERS -->
+      <div id="pg-cust" class="acc-page hidden stack">
+        <div id="custTotal" class="stats"></div>
+        <form id="custForm" class="box stack">
+          <h3 style="margin:0">+ New customer</h3>
+          <input id="cuName" placeholder="Name" required>
+          <div class="row">
+            <input id="cuPhone" type="tel" inputmode="tel" placeholder="Phone">
+            <input id="cuOpen" type="number" inputmode="decimal" min="0" step="any" placeholder="Already owes (MVR)">
+          </div>
+          <button class="btn primary">Add customer</button>
+        </form>
+        <input id="cuSearch" type="search" placeholder="Search customers…">
+        <div id="custList" class="list"></div>
+      </div>
+      <div id="pg-supp" class="acc-page hidden stack">
+        <div id="suppTotal" class="stats"></div>
+        <form id="suppForm" class="box stack">
+          <h3 style="margin:0">+ New supplier</h3>
+          <input id="suName" placeholder="Name" required>
+          <div class="row">
+            <input id="suPhone" type="tel" inputmode="tel" placeholder="Phone">
+            <input id="suTin" placeholder="TIN (optional)">
+          </div>
+          <input id="suOpen" type="number" inputmode="decimal" min="0" step="any" placeholder="We already owe them (MVR)">
+          <button class="btn primary">Add supplier</button>
+        </form>
+        <div id="suppList" class="list"></div>
+      </div>
+
+      <!-- ONE CUSTOMER / SUPPLIER -->
+      <div id="pg-party" class="acc-page hidden stack">
+        <div id="partyHead" class="stats"></div>
+        <form id="partyPayForm" class="box stack">
+          <h3 style="margin:0" id="partyPayTitle">Receive payment</h3>
+          <div class="row">
+            <label>Amount (MVR) <input id="ppAmt" type="number" inputmode="decimal" min="0" step="any" required></label>
+            <label>Date <input id="ppDate" type="date" required></label>
+          </div>
+          <div class="seg" id="ppSeg">
+            <button type="button" data-pay="cash" class="active">💵 Cash</button>
+            <button type="button" data-pay="transfer">🏦 Transfer</button>
+          </div>
+          <input id="ppNote" placeholder="Note / ref (optional)">
+          <button class="btn primary big">✔ Save payment</button>
+        </form>
+        <button class="btn wa" id="partyWaBtn">💬 Send statement on WhatsApp</button>
+        <h3>Statement</h3>
+        <div id="partyStmt" class="list"></div>
+      </div>
+
+      <!-- STOCK -->
+      <div id="pg-stock" class="acc-page hidden stack">
+        <div id="stockStats" class="stats"></div>
+        <div class="row">
+          <button class="btn primary grow" id="goBuy">🛒 Buy stock</button>
+          <button class="btn grow" id="goCount">📋 Count stock</button>
+        </div>
+        <p class="muted">Only items with “Track stock” ticked (📦 Items → edit item) appear here.</p>
+        <div id="stockList" class="list"></div>
+      </div>
+      <div id="pg-buy" class="acc-page hidden stack">
+        <form id="buyForm" class="box stack" autocomplete="off">
+          <div id="buyLines" class="stack"></div>
+          <button type="button" class="btn" id="buyAddLine">+ Add item</button>
+          <div class="row between"><span>Items total</span><b id="buyNet">MVR 0</b></div>
+          <label class="check"><input type="checkbox" id="buyGstChk"> <span>🧾 Supplier charged GST</span></label>
+          <label id="buyGstLbl" class="hidden">GST amount (MVR) <input id="buyGst" type="number" inputmode="decimal" min="0" step="any"></label>
+          <div class="row between grand"><span>TOTAL</span><b id="buyTotal">MVR 0</b></div>
+          <input id="buySupplier" list="supplierList" placeholder="Supplier (needed for credit)">
+          <div class="row">
+            <input id="buyInv" placeholder="Supplier invoice no.">
+            <input id="buyDate" type="date" required>
+          </div>
+          <div class="seg" id="buyPaySeg">
+            <button type="button" data-pay="cash" class="active">💵 Cash</button>
+            <button type="button" data-pay="transfer">🏦 Transfer</button>
+            <button type="button" data-pay="credit">📒 Credit</button>
+          </div>
+          <button class="btn primary big">✔ Save purchase</button>
+        </form>
+      </div>
+      <div id="pg-count" class="acc-page hidden stack">
+        <p class="muted">Type how many you really have. Differences are posted to “Stock loss / adjustment”.</p>
+        <div id="countList" class="list"></div>
+        <button class="btn primary big" id="countSave">✔ Save stock count</button>
+      </div>
+
+      <!-- OWNER -->
+      <div id="pg-owner" class="acc-page hidden stack">
+        <form id="ownerForm" class="box stack">
+          <h3 style="margin:0">👤 Owner money</h3>
+          <div class="seg" id="ownSeg">
+            <button type="button" data-ow="in" class="active">➕ Owner puts money in</button>
+            <button type="button" data-ow="out">➖ Owner takes money out</button>
+          </div>
+          <div class="row">
+            <label>Amount (MVR) <input id="owAmt" type="number" inputmode="decimal" min="0" step="any" required></label>
+            <label>Date <input id="owDate" type="date" required></label>
+          </div>
+          <div class="seg" id="owPaySeg">
+            <button type="button" data-pay="cash" class="active">💵 Cash</button>
+            <button type="button" data-pay="transfer">🏦 Bank</button>
+          </div>
+          <input id="owNote" placeholder="Note (optional)">
+          <button class="btn primary big">✔ Save</button>
+        </form>
+        <form id="openForm" class="box stack">
+          <h3 style="margin:0">🏁 Opening balances</h3>
+          <p class="muted" style="margin:0" id="openInfo">Starting to use the app with money already in the business? Enter what you have on the start date. Opening stock is entered on each item, and opening customer / supplier balances when you add them.</p>
+          <label>Start date <input id="opDate" type="date" required></label>
+          <div class="row">
+            <label>Cash in hand (MVR) <input id="opCash" type="number" inputmode="decimal" min="0" step="any"></label>
+            <label>Bank balance (MVR) <input id="opBank" type="number" inputmode="decimal" min="0" step="any"></label>
+          </div>
+          <button class="btn big">✔ Save opening balances</button>
+        </form>
+        <h3>History</h3>
+        <div id="ownerList" class="list"></div>
+      </div>
+
+      <!-- DAY CLOSING -->
+      <div id="pg-close" class="acc-page hidden stack">
+        <div id="closeStats" class="stats"></div>
+        <form id="closeForm" class="box stack">
+          <label>Cash counted in the drawer (MVR) <input id="clCount" type="number" inputmode="decimal" min="0" step="any" required class="amount-big"></label>
+          <div class="row between"><span>Difference</span><b id="clDiff">–</b></div>
+          <input id="clNote" placeholder="Note (optional)">
+          <button class="btn primary big">✔ Close the day</button>
+        </form>
+        <h3>Past closings</h3>
+        <div id="closeList" class="list"></div>
+      </div>
+
+      <!-- JOURNAL -->
+      <div id="pg-journal" class="acc-page hidden stack">
+        <div id="jnPeriod"></div>
+        <div id="jnList" class="list"></div>
+        <button class="btn" data-csv="journal">⬇ CSV</button>
+      </div>
+
+      <!-- LEDGER -->
+      <div id="pg-ledger" class="acc-page hidden stack">
+        <select id="lgAcc" class="fullsel"></select>
+        <div id="lgPeriod"></div>
+        <div id="lgBody" class="report"></div>
+        <div class="row"><button class="btn grow" data-csv="ledger">⬇ CSV</button><button class="btn grow" data-print="lgBody">🖨 Print</button></div>
+      </div>
+
+      <!-- CHART OF ACCOUNTS -->
+      <div id="pg-coa" class="acc-page hidden stack">
+        <form id="coaForm" class="box stack">
+          <h3 style="margin:0">+ New account</h3>
+          <div class="row">
+            <input id="coaCode" placeholder="Code e.g. 6300" inputmode="numeric" required class="narrow">
+            <input id="coaName" placeholder="Account name" required>
+          </div>
+          <select id="coaType" class="fullsel">
+            <option value="asset">Asset</option><option value="liability">Liability</option><option value="equity">Equity</option>
+            <option value="income">Income</option><option value="cogs">Cost of sales</option><option value="expense" selected>Expense</option>
+          </select>
+          <button class="btn primary">Add account</button>
+        </form>
+        <div id="coaList" class="report"></div>
+      </div>
+
+      <!-- MANUAL ENTRY -->
+      <div id="pg-manual" class="acc-page hidden stack">
+        <form id="mjForm" class="box stack">
+          <div class="row">
+            <label>Date <input id="mjDate" type="date" required></label>
+          </div>
+          <input id="mjMemo" placeholder="Description, e.g. Depreciation of fridge" required>
+          <div id="mjLines" class="stack"></div>
+          <button type="button" class="btn" id="mjAdd">+ Add line</button>
+          <div class="row between"><span>Debit <b id="mjDr">0</b> · Credit <b id="mjCr">0</b></span><b id="mjOk"></b></div>
+          <button class="btn primary big">✔ Post entry</button>
+        </form>
+      </div>
+      <datalist id="customerList"></datalist>
+      <datalist id="supplierList"></datalist>
     </div>
 
     <!-- EXPENSES -->
@@ -185,14 +439,16 @@
         <div class="chips" id="xCats"></div>
         <input id="xTitle" placeholder="Details, e.g. 2 gas cylinders">
         <label>Date <input id="xDate" type="date" required></label>
+        <input id="xSupplier" list="supplierList" placeholder="Supplier (optional – needed for credit)">
         <div class="seg" id="xPaySeg">
           <button type="button" data-pay="cash" class="active">💵 <span data-i18n="cash">Cash</span></button>
           <button type="button" data-pay="transfer">🏦 <span data-i18n="transfer">Transfer</span></button>
+          <button type="button" data-pay="credit">📒 Credit</button>
         </div>
+        <select id="xAcc" class="fullsel"></select>
         <label class="check"><input type="checkbox" id="xGst"> <span>🧾 Supplier bill includes GST</span></label>
         <div id="xGstBox" class="hidden stack">
           <label>GST in this bill (MVR) <input id="xGstAmt" type="number" inputmode="decimal" min="0" step="any"></label>
-          <input id="xSupplier" placeholder="Supplier name">
           <div class="row">
             <input id="xSupTin" placeholder="Supplier TIN">
             <input id="xInvNo" placeholder="Supplier invoice no.">
@@ -272,6 +528,11 @@
         <button type="button" class="btn small" id="genBarcodeBtn" data-i18n="makeNew">Make new</button>
       </div>
     </label>
+    <div class="box stack" id="stockBox">
+      <label class="check"><input type="checkbox" id="itemTrack"> <span>📦 Track stock for this item</span></label>
+      <label id="itemOpenLbl" class="hidden">Opening stock (how many you have now) <input id="itemOpen" type="number" inputmode="numeric" min="0" step="any"></label>
+      <p class="muted hidden" id="itemStockInfo" style="margin:0"></p>
+    </div>
     <div id="barcodeBox" class="barcode-box hidden">
       <svg id="barcodeSvg"></svg>
       <button type="button" class="btn small" id="printLabelBtn">🖨 Print label</button>
@@ -320,6 +581,11 @@
     <div class="seg" id="paySeg">
       <button data-pay="cash" class="active">💵 <span data-i18n="cash">Cash</span></button>
       <button data-pay="transfer">🏦 <span data-i18n="transfer">Transfer</span></button>
+      <button data-pay="credit">📒 Credit</button>
+    </div>
+    <div id="creditBox" class="hidden stack">
+      <input id="coCustName" list="customerList" placeholder="Customer name (pays later)">
+      <p class="muted" id="coCustOwes" style="margin:0"></p>
     </div>
     <div id="cashBox">
       <label class="row between"><span>Cash received</span><input id="coReceived" type="number" inputmode="decimal" min="0" step="any" class="narrow"></label>
