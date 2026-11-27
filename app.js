@@ -25,7 +25,9 @@ const db = initializeFirestore(fbApp, {
 // ---------------- State ----------------
 const DEFAULT_SHOP = {
   name: "Magey Fihaara", phone: "", address: "",
-  country: "960", footer: "Thank you! Come again 🙏"
+  country: "960", footer: "Thank you! Come again 🙏",
+  legalName: "", tin: "", gstRate: 8, gstInclusive: false, taxDefault: false,
+  banks: [], showBank: true
 };
 const S = {
   uid: null,
@@ -49,7 +51,8 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const num = (n) => Number(n || 0).toLocaleString("en-US", { maximumFractionDigits: 2 });
+// whole numbers stay "120"; amounts with cents always show 2 decimals ("9.60")
+const num = (n) => { const v = Number(n || 0); return v.toLocaleString("en-US", Number.isInteger(Math.round(v * 100) / 100) ? { maximumFractionDigits: 0 } : { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 const CURRENCY = "MVR";
 const money = (n) => `${CURRENCY} ${num(n)}`;
 const col = (name) => collection(db, "shops", S.shopId, name);
@@ -95,11 +98,22 @@ const DV = {
   shopPhone: "ފިހާރައިގެ ފޯނު ނަންބަރު",
   address: "އެޑްރެސް",
   footer: "ބިލުގެ ތިރީގައި ހިމަނާ މެސެޖު",
+  // tax — same words as Naalu
+  taxInvoice: "🧾 ޓެކްސް އިންވޮއިސް (ޖީ.އެސް.ޓީ {r}%)",
+  taxHead: "🧾 ޓެކްސް (ޖީ.އެސް.ޓީ) އިންވޮއިސް",
+  legalName: "ރަޖިސްޓްރީކޮށްފައިވާ ވިޔަފާރީގެ ނަން",
+  asOnCert: "ޖީ.އެސް.ޓީ ސެޓްފިކެޓުގައިވާ ގޮތަށް",
+  tin: "ޓީ.އައި.އެން / ޖީ.އެސް.ޓީ ރަޖިސްޓްރީ ނަންބަރު",
+  gstRate: "ޖީ.އެސް.ޓީ ރޭޓް (%)",
+  gstIncl: "އަހަރެންގެ އަގުތަކުގައި ޖީ.އެސް.ޓީ ހިމެނިފައި",
+  taxDefault: "ކޮންމެ ރަސީދެއް ޓެކްސް އިންވޮއިސްއަކަށް ހަދާ",
+  gstInv: "އިންވޮއިސްތަކުގެ ޖީއެސްޓީ",
 };
 const EN = {
   qtyBtn: "Qty", addItem: "Add item", addPhoto: "Tap to add photo",
   cash: "Cash", transfer: "Transfer", expenses: "Expenses", noExpenses: "No expenses",
   noSales: "No sales in this period", noBills: "No bills",
+  taxInvoice: "🧾 Tax invoice (GST {r}%)", gstInv: "GST on invoices",
 };
 // Bill footer suggestions (the bill text is the shop's choice, not each phone's language)
 const FOOTERS = ["Thank you! Come again 🙏", "ޝުކުރިއްޔާ! އަލުން ވަޑައިގަންނަވާ! 🙏"];
@@ -377,7 +391,8 @@ $$(".bottomnav button").forEach((b) => b.addEventListener("click", () => {
   $$(".bottomnav button").forEach((x) => x.classList.toggle("active", x === b));
   $$(".view").forEach((v) => v.classList.add("hidden"));
   $("#view-" + b.dataset.view).classList.remove("hidden");
-  if (b.dataset.view === "accounts") loadAccounts();
+  if (b.dataset.view === "accounts") { S.acctMode === "gst" ? loadGst() : loadAccounts(); }
+  if (b.dataset.view === "expenses") openExpenses();
   if (b.dataset.view === "settings") fillSettings();
 }));
 
@@ -522,16 +537,34 @@ document.addEventListener("keydown", (e) => {
 $("#checkoutBtn").addEventListener("click", () => {
   if (!S.cart.size) return toast("Add items first");
   $("#coDiscount").value = 0; $("#coReceived").value = ""; $("#coRef").value = ""; $("#coPhone").value = "";
+  $("#coTax").checked = !!S.shop.taxDefault; $("#coTin").value = "";
+  $("#coTin").classList.toggle("hidden", !$("#coTax").checked);
+  renderTaxLbl();
   setPayment("cash");
   renderCheckout();
   openModal("#checkoutModal");
 });
 
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 function totals() {
   const subtotal = cartSubtotal();
   const discount = Math.min(subtotal, Math.max(0, Number($("#coDiscount").value) || 0));
-  return { subtotal, discount, total: subtotal - discount };
+  const net = round2(subtotal - discount);
+  const tax = $("#coTax").checked;
+  const rate = Number(S.shop.gstRate) || 0;
+  if (!tax) return { subtotal, discount, tax, gstRate: 0, taxable: net, gst: 0, total: net };
+  if (S.shop.gstInclusive) {           // prices already include GST: take it out
+    const gst = round2(net * rate / (100 + rate));
+    return { subtotal, discount, tax, gstRate: rate, taxable: round2(net - gst), gst, total: net };
+  }
+  const gst = round2(net * rate / 100);  // add GST on top
+  return { subtotal, discount, tax, gstRate: rate, taxable: net, gst, total: round2(net + gst) };
 }
+function renderTaxLbl() {
+  $("#taxLbl").textContent = t("taxInvoice").replace("{r}", Number(S.shop.gstRate) || 0);
+  $("#taxLbl").classList.toggle("dv", LANG === "dv");
+}
+$("#coTax").addEventListener("change", () => { $("#coTin").classList.toggle("hidden", !$("#coTax").checked); updateTotalsUI(); });
 
 function renderCheckout() {
   const lines = cartLines();
@@ -549,12 +582,17 @@ function renderCheckout() {
   updateTotalsUI();
 }
 function updateTotalsUI() {
-  const t = totals();
-  $("#coSubtotal").textContent = money(t.subtotal);
-  $("#coTotal").textContent = money(t.total);
+  const T = totals();
+  $("#coSubtotal").textContent = money(T.subtotal);
+  $("#taxableRow").classList.toggle("hidden", !T.tax);
+  $("#gstRow").classList.toggle("hidden", !T.tax);
+  $("#coTaxable").textContent = money(T.taxable);
+  $("#gstLbl").textContent = `GST ${T.gstRate}%${S.shop.gstInclusive ? " (included)" : ""}`;
+  $("#coGst").textContent = money(T.gst);
+  $("#coTotal").textContent = money(T.total);
   const rec = Number($("#coReceived").value) || 0;
-  $("#coChange").textContent = rec ? money(rec - t.total) : "–";
-  $("#coChange").classList.toggle("neg", rec > 0 && rec < t.total);
+  $("#coChange").textContent = rec ? money(rec - T.total) : "–";
+  $("#coChange").classList.toggle("neg", rec > 0 && rec < T.total);
 }
 $("#cartLines").addEventListener("click", (e) => {
   const line = e.target.closest(".line"); const act = e.target.dataset.act;
@@ -590,6 +628,8 @@ function saveSale(sendWhatsApp) {
     lines,
     subtotal: t.subtotal,
     discount: t.discount,
+    tax: t.tax, gstRate: t.gstRate, gstInclusive: !!S.shop.gstInclusive,
+    taxable: t.taxable, gst: t.gst, customerTin: t.tax ? $("#coTin").value.trim() : "",
     total: t.total,
     cost: lines.reduce((s, l) => s + l.cost * l.qty, 0),
     payment: S.payment,
@@ -617,23 +657,42 @@ $("#saveWaBtn").addEventListener("click", () => saveSale(true));
 
 // ---------------- RECEIPT ----------------
 function billText(s) {
-  const L = [`*${S.shop.name}*`];
+  const L = [];
+  if (s.tax) {
+    L.push("*TAX INVOICE*", `*${S.shop.legalName || S.shop.name}*`);
+    if (S.shop.legalName && S.shop.legalName !== S.shop.name) L.push(S.shop.name);
+    if (S.shop.tin) L.push(`TIN: ${S.shop.tin}`);
+  } else L.push(`*${S.shop.name}*`);
   if (S.shop.address) L.push(S.shop.address);
   if (S.shop.phone) L.push(`Ph: ${S.shop.phone}`);
-  L.push(`Bill #${s.billNo}`, fmtDateTime(new Date(s.createdAtMs)), "--------------------------");
+  L.push(`${s.tax ? "Invoice" : "Bill"} #${s.billNo}`, fmtDateTime(new Date(s.createdAtMs)));
+  if (s.tax && s.customerTin) L.push(`Customer TIN: ${s.customerTin}`);
+  L.push("--------------------------");
   s.lines.forEach((l) => L.push(`${l.name}\n   ${l.qty} x ${num(l.price)} = ${num(l.qty * l.price)}`));
   L.push("--------------------------");
   if (s.discount) L.push(`Subtotal: ${money(s.subtotal)}`, `Discount: -${money(s.discount)}`);
+  if (s.tax) {
+    L.push(`Taxable value: ${money(s.taxable)}`);
+    L.push(`GST ${s.gstRate}%${s.gstInclusive ? " (included)" : ""}: ${money(s.gst)}`);
+  }
   L.push(`*TOTAL: ${money(s.total)}*`);
   L.push(`Paid by: ${s.payment === "cash" ? "Cash" : "Bank Transfer"}${s.ref ? ` (${s.ref})` : ""}`);
   if (s.payment === "cash" && s.received > 0)
     L.push(`Received: ${money(s.received)}  Change: ${money(s.received - s.total)}`);
+  const banks = billBanks();
+  if (banks.length) {
+    L.push("", "🏦 *Pay by bank transfer:*");
+    banks.forEach((b) => { L.push(`${b.bank}${b.currency ? " " + b.currency : ""} – ${b.name}`); L.push(b.number); });
+  }
   if (S.shop.footer) L.push("", S.shop.footer);
   return L.join("\n");
 }
 
 function showBill(sale, fromHistory) {
   S.billSale = sale;
+  S.billBankIdx = 0;
+  renderBillBanks();
+  makeBillPhoto(sale);
   $("#billText").textContent = billText(sale);
   $("#billPhone").value = sale.customer || "";
   $("#billDeleteBtn").classList.toggle("hidden", !fromHistory);
@@ -862,8 +921,10 @@ async function loadAccounts() {
   const transfer = sum(sales.filter((s) => s.payment === "transfer"), (s) => s.total);
   const discount = sum(sales, (s) => s.discount);
   const cost = sum(sales, (s) => s.cost);
-  const exp = sum(expenses, (e) => e.amount);
-  const gross = total - cost;
+  // GST paid on supplier bills is claimed back from MIRA, so it is not a cost
+  const exp = sum(expenses, (e) => (Number(e.amount) || 0) - (Number(e.gst) || 0));
+  const gst = sum(sales, (s) => s.gst);
+  const gross = total - gst - cost;      // GST belongs to MIRA, not the shop
   const net = gross - exp;
 
   const stat = (label, value, cls = "") => `<div class="stat ${cls}"><span class="${/[\u0780-\u07BF]/.test(label) ? "dv" : ""}">${label}</span><b>${value}</b></div>`;
@@ -873,6 +934,7 @@ async function loadAccounts() {
     stat("💵 " + t("cash"), money(cash)) +
     stat("🏦 " + t("transfer"), money(transfer)) +
     stat("Discounts", money(discount)) +
+    stat("🧾 " + t("gstInv"), money(gst)) +
     stat("Cost of items", money(cost)) +
     stat(t("expenses"), money(exp)) +
     stat("Gross profit", money(gross)) +
@@ -894,14 +956,14 @@ async function loadAccounts() {
     <div class="line tap" data-id="${s.id}">
       <div class="grow"><b>#${esc(s.billNo)}</b>
         <div class="muted">${fmtDateTime(new Date(s.createdAtMs))} · ${s.lines.reduce((a, l) => a + l.qty, 0)} items</div></div>
-      <span class="tag ${s.payment}">${s.payment === "cash" ? "Cash" : "Transfer"}</span>
+      ${s.tax ? `<span class="tag">🧾</span>` : ""}<span class="tag ${s.payment}">${s.payment === "cash" ? "Cash" : "Transfer"}</span>
       <b>${money(s.total)}</b>
     </div>`).join("") : `<div class="empty ${dvc()}">${t("noBills")}</div>`;
 
   // Expenses
   $("#expenseList").innerHTML = expenses.length ? expenses.map((e) => `
     <div class="line" data-id="${e.id}">
-      <div class="grow">${esc(e.title)}<div class="muted">${fmtDateTime(new Date(e.createdAtMs))}</div></div>
+      <div class="grow">${esc(e.title)}<div class="muted">${fmtDateTime(new Date(e.createdAtMs))}${e.gst ? ` · 🧾 GST ${num(e.gst)}` : ""}</div></div>
       <b>${money(e.amount)}</b><button class="x" data-del-exp="${e.id}">🗑</button>
     </div>`).join("") : `<div class="empty ${dvc()}">${t("noExpenses")}</div>`;
 }
@@ -912,19 +974,7 @@ $("#billList").addEventListener("click", (e) => {
   if (s) showBill(s, true);
 });
 
-$("#expenseForm").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const data = {
-    title: $("#expTitle").value.trim(),
-    amount: Number($("#expAmount").value) || 0,
-    createdAtMs: Date.now(),
-    createdAt: serverTimestamp(),
-  };
-  setDoc(doc(col("expenses")), data).catch(fail);
-  $("#expTitle").value = ""; $("#expAmount").value = "";
-  toast("Expense added");
-  setTimeout(loadAccounts, 300);
-});
+$("#goAddExpense").addEventListener("click", () => $('.bottomnav [data-view="expenses"]').click());
 $("#expenseList").addEventListener("click", (e) => {
   const id = e.target.dataset.delExp; if (!id) return;
   if (!confirm("Delete this expense?")) return;
@@ -935,10 +985,12 @@ $("#expenseList").addEventListener("click", (e) => {
 $("#exportCsv").addEventListener("click", () => {
   if (!S.periodSales.length) return toast("No bills in this period");
   const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-  const rows = [["Bill", "Date", "Item", "Qty", "Price", "Line total", "Bill total", "Payment", "Customer"]];
-  S.periodSales.forEach((s) => s.lines.forEach((l) =>
-    rows.push([s.billNo, fmtDateTime(new Date(s.createdAtMs)), l.name, l.qty, l.price, l.qty * l.price, s.total, s.payment, s.customer])));
-  const blob = new Blob([rows.map((r) => r.map(q).join(",")).join("\n")], { type: "text/csv" });
+  const rows = [["Bill", "Date", "Item", "Qty", "Price", "Line total", "Tax invoice", "Taxable", "GST", "Bill total", "Payment", "Customer"]];
+  S.periodSales.forEach((s) => s.lines.forEach((l, i) =>
+    rows.push([s.billNo, fmtDateTime(new Date(s.createdAtMs)), l.name, l.qty, l.price, l.qty * l.price,
+      s.tax ? "Yes" : "No", i === 0 ? (s.taxable ?? s.total) : "", i === 0 ? (s.gst || 0) : "", i === 0 ? s.total : "",
+      s.payment, s.customer])));
+  const blob = new Blob(["\ufeff" + rows.map((r) => r.map(q).join(",")).join("\n")], { type: "text/csv" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `sales-${S.period}-${toDateInput(new Date())}.csv`;
@@ -958,6 +1010,11 @@ function fillSettings() {
   $("#setAddress").value = S.shop.address;
   $("#setCountry").value = S.shop.country;
   $("#setFooter").value = S.shop.footer;
+  $("#setLegalName").value = S.shop.legalName || "";
+  $("#setTin").value = S.shop.tin || "";
+  $("#setGst").value = S.shop.gstRate ?? 8;
+  $("#setGstIncl").checked = !!S.shop.gstInclusive;
+  $("#setTaxDefault").checked = !!S.shop.taxDefault;
 }
 $("#settingsForm").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -967,6 +1024,11 @@ $("#settingsForm").addEventListener("submit", (e) => {
     address: $("#setAddress").value.trim(),
     country: $("#setCountry").value.replace(/\D/g, "") || "960",
     footer: $("#setFooter").value.trim(),
+    legalName: $("#setLegalName").value.trim(),
+    tin: $("#setTin").value.trim(),
+    gstRate: Number($("#setGst").value) || 0,
+    gstInclusive: $("#setGstIncl").checked,
+    taxDefault: $("#setTaxDefault").checked,
   };
   S.shop = { ...S.shop, ...changes };
   updateDoc(doc(db, "shops", S.shopId), changes).catch(fail);
@@ -990,7 +1052,7 @@ function applyLang() {
   });
   $("#langBtn").textContent = dv ? "EN" : "ދިވެހި";
   $("#langBtn").classList.toggle("dv", !dv);
-  renderSellGrid();
+  renderSellGrid(); renderTaxLbl();
   if (S.shopId && !$("#view-accounts").classList.contains("hidden")) loadAccounts();
 }
 $("#footerChips").innerHTML = FOOTERS.map((f) => `<button type="button" class="chip" dir="auto" data-footer="${esc(f)}">${esc(f)}</button>`).join("");
@@ -1003,3 +1065,429 @@ $("#langBtn").addEventListener("click", () => {
   applyLang();
 });
 applyLang();
+
+// ================= BANK ACCOUNTS =================
+const billBanks = () => (S.shop.showBank === false ? [] : (S.shop.banks || []).filter((b) => b && b.number));
+const selBank = () => billBanks()[S.billBankIdx || 0] || null;
+
+function addBankRow(b = {}) {
+  const row = document.createElement("div");
+  row.className = "box stack bank-row";
+  row.innerHTML = `
+    <div class="row">
+      <input class="b-bank" list="bankNames" placeholder="Bank e.g. BML" value="${esc(b.bank || "")}">
+      <select class="b-cur narrow"><option ${b.currency !== "USD" ? "selected" : ""}>MVR</option><option ${b.currency === "USD" ? "selected" : ""}>USD</option></select>
+    </div>
+    <input class="b-name" placeholder="Account name" value="${esc(b.name || "")}">
+    <div class="row">
+      <input class="b-num" inputmode="numeric" placeholder="Account number" value="${esc(b.number || "")}">
+      <button type="button" class="x" title="Remove">🗑</button>
+    </div>`;
+  row.querySelector(".x").addEventListener("click", () => row.remove());
+  $("#bankRows").appendChild(row);
+}
+$("#addBankBtn").addEventListener("click", () => addBankRow());
+const readBanks = () => $$("#bankRows .bank-row").map((r) => ({
+  bank: r.querySelector(".b-bank").value.trim(),
+  currency: r.querySelector(".b-cur").value,
+  name: r.querySelector(".b-name").value.trim(),
+  number: r.querySelector(".b-num").value.replace(/\s+/g, ""),
+})).filter((b) => b.number);
+
+function fillBankSettings() {
+  $("#bankRows").innerHTML = "";
+  (S.shop.banks || []).forEach((b) => addBankRow(b));
+  if (!(S.shop.banks || []).length) addBankRow();
+  $("#setShowBank").checked = S.shop.showBank !== false;
+}
+// save bank details together with the other settings
+$("#settingsForm").addEventListener("submit", () => {
+  const changes = { banks: readBanks(), showBank: $("#setShowBank").checked };
+  S.shop = { ...S.shop, ...changes };
+  updateDoc(doc(db, "shops", S.shopId), changes).catch(fail);
+}, true);
+$('.bottomnav [data-view="settings"]').addEventListener("click", fillBankSettings);
+
+// ================= SEND BILL: photo + copyable account number =================
+async function copyText(txt) {
+  try { await navigator.clipboard.writeText(txt); return true; } catch {}
+  const ta = document.createElement("textarea");
+  ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  let ok = false; try { ok = document.execCommand("copy"); } catch {}
+  ta.remove(); return ok;
+}
+function renderBillBanks() {
+  const banks = billBanks();
+  $("#billBankBox").classList.toggle("hidden", banks.length < 2);
+  $("#billAccRow").classList.toggle("hidden", !banks.length);
+  $("#billBankChips").innerHTML = banks.map((b, i) =>
+    `<button type="button" class="chip ${i === (S.billBankIdx || 0) ? "sel" : ""}" data-bi="${i}">${esc(b.bank || "Bank")} ${esc(b.currency || "")}<br><small>${esc(b.number)}</small></button>`).join("");
+}
+$("#billBankChips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-bi]"); if (!b) return;
+  S.billBankIdx = +b.dataset.bi; renderBillBanks();
+});
+$("#billCopyAccBtn").addEventListener("click", async () => {
+  const b = selBank(); if (!b) return;
+  toast((await copyText(b.number)) ? `Copied ${b.number}` : "Could not copy");
+});
+// Separate WhatsApp message with ONLY the number: customer long-presses → Copy → pastes in bank app
+$("#billAccWaBtn").addEventListener("click", () => {
+  const b = selBank(); if (!b) return;
+  window.open(waUrl($("#billPhone").value, b.number), "_blank");
+});
+
+// ---- draw the bill as a picture (canvas → PNG)
+const THAANA = /[ހ-޿]/;
+const FONT = '"FarumaThaana","Noto Sans Thaana",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';
+async function renderBillPng(s) {
+  try { await document.fonts.ready; } catch {}
+  const W = 720, P = 40, ops = [], rects = [];
+  const meas = document.createElement("canvas").getContext("2d");
+  let y = P;
+  const f = (size, bold, mono) => `${bold ? "700 " : ""}${size}px ${mono ? "ui-monospace,Menlo,Consolas,monospace" : FONT}`;
+  const wrap = (str, font, maxW) => {
+    meas.font = font;
+    const out = []; let line = "";
+    String(str).split(" ").forEach((w) => {
+      const test = line ? line + " " + w : w;
+      if (meas.measureText(test).width > maxW && line) { out.push(line); line = w; } else line = test;
+    });
+    out.push(line); return out;
+  };
+  const text = (str, o = {}) => {
+    if (!str && str !== 0) return;
+    const size = o.size || 24, font = f(size, o.bold, o.mono);
+    wrap(str, font, W - 2 * P - (o.indent || 0) * 2).forEach((ln) => {
+      ops.push({ str: ln, font, y: y + size, align: o.align || "left", color: o.color || "#1f1b16", indent: o.indent || 0 });
+      y += Math.round(size * 1.35);
+    });
+    y += o.gap ?? 4;
+  };
+  const row = (l, r, o = {}) => {
+    const size = o.size || 24, font = f(size, o.bold);
+    ops.push({ str: String(l), font, y: y + size, align: "left", color: o.color || "#1f1b16", indent: 0 });
+    ops.push({ str: String(r), font: f(size, o.bold ?? true), y: y + size, align: "right", color: o.rcolor || o.color || "#1f1b16", indent: 0 });
+    y += Math.round(size * 1.35) + (o.gap ?? 4);
+  };
+  const rule = () => { ops.push({ rule: true, y: y + 10 }); y += 24; };
+  const muted = "#7a7068", brand = "#c2410c";
+
+  if (s.tax) text("TAX INVOICE", { size: 22, bold: true, align: "center", color: brand });
+  text(s.tax ? (S.shop.legalName || S.shop.name) : S.shop.name, { size: 34, bold: true, align: "center" });
+  if (s.tax && S.shop.legalName && S.shop.legalName !== S.shop.name) text(S.shop.name, { size: 22, align: "center", color: muted });
+  if (s.tax && S.shop.tin) text(`TIN: ${S.shop.tin}`, { size: 22, align: "center" });
+  if (S.shop.address) text(S.shop.address, { size: 22, align: "center", color: muted });
+  if (S.shop.phone) text(`📞 ${S.shop.phone}`, { size: 22, align: "center", color: muted });
+  y += 8;
+  row(`${s.tax ? "Invoice" : "Bill"} #${s.billNo}`, fmtDateTime(new Date(s.createdAtMs)), { size: 21, color: muted, bold: false });
+  if (s.tax && s.customerTin) text(`Customer TIN: ${s.customerTin}`, { size: 21, color: muted });
+  rule();
+  s.lines.forEach((l) => {
+    row(l.name, num(l.qty * l.price), { size: 25, gap: 0 });
+    text(`${l.qty} × ${num(l.price)}`, { size: 20, color: muted, gap: 8 });
+  });
+  rule();
+  if (s.discount) { row("Subtotal", money(s.subtotal), { size: 22, bold: false }); row("Discount", "-" + money(s.discount), { size: 22, bold: false }); }
+  if (s.tax) {
+    row("Taxable value", money(s.taxable), { size: 22, bold: false });
+    row(`GST ${s.gstRate}%${s.gstInclusive ? " (included)" : ""}`, money(s.gst), { size: 22, bold: false });
+  }
+  y += 6;
+  row("TOTAL", money(s.total), { size: 38, bold: true, rcolor: brand, gap: 8 });
+  text(`Paid by: ${s.payment === "cash" ? "Cash" : "Bank transfer"}${s.ref ? ` (${s.ref})` : ""}`, { size: 21, color: muted });
+  if (s.payment === "cash" && s.received > 0) text(`Received ${money(s.received)} · Change ${money(s.received - s.total)}`, { size: 21, color: muted });
+
+  const banks = billBanks();
+  if (banks.length) {
+    y += 18; const top = y; y += 18;
+    text("🏦 Pay by bank transfer", { size: 24, bold: true, indent: 18, gap: 10 });
+    banks.forEach((b) => {
+      text(`${b.bank || "Bank"}${b.currency ? " · " + b.currency : ""} – ${b.name}`, { size: 21, color: muted, indent: 18, gap: 0 });
+      text(b.number, { size: 34, bold: true, mono: true, indent: 18, gap: 12 });
+    });
+    rects.push({ y: top, h: y - top + 6 }); y += 10;
+  }
+  if (S.shop.footer) { y += 14; text(S.shop.footer, { size: 24, align: "center" }); }
+  y += P - 4;
+
+  const cv = document.createElement("canvas");
+  cv.width = W; cv.height = y;
+  const c = cv.getContext("2d");
+  c.fillStyle = "#ffffff"; c.fillRect(0, 0, W, y);
+  c.fillStyle = "#e8590c"; c.fillRect(0, 0, W, 10);
+  rects.forEach((r) => { c.fillStyle = "#fff4ec"; c.strokeStyle = "#e8590c"; c.lineWidth = 2;
+    c.beginPath(); c.roundRect ? c.roundRect(P, r.y, W - 2 * P, r.h, 16) : c.rect(P, r.y, W - 2 * P, r.h); c.fill(); c.stroke(); });
+  ops.forEach((o) => {
+    if (o.rule) { c.strokeStyle = "#cfc6bc"; c.setLineDash([8, 6]); c.lineWidth = 2;
+      c.beginPath(); c.moveTo(P, o.y); c.lineTo(W - P, o.y); c.stroke(); c.setLineDash([]); return; }
+    c.font = o.font; c.fillStyle = o.color;
+    c.direction = THAANA.test(o.str) ? "rtl" : "ltr";
+    c.textAlign = o.align;
+    const x = o.align === "center" ? W / 2 : o.align === "right" ? W - P - o.indent : P + o.indent;
+    c.fillText(o.str, x, o.y);
+  });
+  return new Promise((res) => cv.toBlob(res, "image/png"));
+}
+
+function makeBillPhoto(sale) {
+  S.billImg = null;
+  $("#billImg").classList.add("hidden");
+  $("#billText").classList.remove("hidden");
+  S.billImgP = renderBillPng(sale).then((blob) => {
+    if (S.billSale !== sale || !blob) return blob;
+    S.billImg = blob;
+    if (S.billImgUrl) URL.revokeObjectURL(S.billImgUrl);
+    S.billImgUrl = URL.createObjectURL(blob);
+    $("#billImg").src = S.billImgUrl;
+    $("#billImg").classList.remove("hidden");
+    $("#billText").classList.add("hidden");
+    return blob;
+  }).catch(() => null);
+}
+function downloadBlob(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+// Share sheet → WhatsApp: photo of the bill, caption = ONLY the account number (easy to copy)
+$("#billPhotoBtn").addEventListener("click", async () => {
+  const blob = S.billImg || (await S.billImgP);
+  if (!blob) return toast("Could not make the photo");
+  const name = `bill-${S.billSale.billNo}.png`;
+  const file = new File([blob], name, { type: "image/png" });
+  const acc = selBank();
+  const caption = acc ? acc.number : `Bill #${S.billSale.billNo} – ${money(S.billSale.total)}`;
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], text: caption }); return; }
+    catch (e) { if (e.name === "AbortError") return; }
+  }
+  downloadBlob(blob, name);
+  if (acc) await copyText(acc.number);
+  toast(acc ? "Photo saved & account no. copied – attach in WhatsApp" : "Photo saved – attach it in WhatsApp");
+});
+$("#billSaveImgBtn").addEventListener("click", async () => {
+  const blob = S.billImg || (await S.billImgP);
+  if (blob) downloadBlob(blob, `bill-${S.billSale.billNo}.png`);
+});
+
+// ================= EXPENSES TAB =================
+const EXP_CATS = [
+  ["Ingredients", "🥬"], ["Oil", "🛢", "ތެޔޮ"], ["Gas", "🔥", "ގޭސް"], ["Rent", "🏠", "ކުލި"],
+  ["Electricity", "💡"], ["Water", "🚰"], ["Salary", "👥"], ["Transport", "🚚"], ["Packaging", "📦"], ["Other", "➕"],
+];
+const catLabel = (c) => { const k = EXP_CATS.find((x) => x[0] === c); return k ? `${k[1]} ${LANG === "dv" && k[2] ? k[2] : k[0]}` : c; };
+const X = { cat: "", pay: "cash", gstEdited: false };
+
+function renderXCats() {
+  $("#xCats").innerHTML = EXP_CATS.map(([c]) =>
+    `<button type="button" class="chip ${X.cat === c ? "sel" : ""}" data-cat="${c}">${esc(catLabel(c))}</button>`).join("");
+}
+$("#xCats").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cat]"); if (!b) return;
+  X.cat = X.cat === b.dataset.cat ? "" : b.dataset.cat; renderXCats();
+});
+$("#xPaySeg").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-pay]"); if (!b) return;
+  X.pay = b.dataset.pay;
+  $$("#xPaySeg button").forEach((x) => x.classList.toggle("active", x === b));
+});
+function autoGst() {
+  if (!$("#xGst").checked || X.gstEdited) return;
+  const amt = Number($("#xAmount").value) || 0, r = Number(S.shop.gstRate) || 0;
+  $("#xGstAmt").value = amt ? round2(amt * r / (100 + r)) : "";
+}
+$("#xGst").addEventListener("change", () => { $("#xGstBox").classList.toggle("hidden", !$("#xGst").checked); X.gstEdited = false; autoGst(); });
+$("#xAmount").addEventListener("input", autoGst);
+$("#xGstAmt").addEventListener("input", () => { X.gstEdited = true; });
+
+function resetExpForm() {
+  $("#expForm").reset(); X.cat = ""; X.gstEdited = false; renderXCats();
+  $("#xGstBox").classList.add("hidden");
+  $("#xDate").value = toDateInput(new Date());
+  $$("#xPaySeg button").forEach((x) => x.classList.toggle("active", x.dataset.pay === X.pay));
+}
+function openExpenses() {
+  if (!$("#xDate").value) $("#xDate").value = toDateInput(new Date());
+  if (!$("#xMonth").value) $("#xMonth").value = toDateInput(new Date()).slice(0, 7);
+  renderXCats(); loadExpenses();
+}
+$("#expForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const amount = round2($("#xAmount").value);
+  const details = $("#xTitle").value.trim();
+  if (!amount) return toast("Enter the amount");
+  if (!X.cat && !details) return toast("Choose a category or type details");
+  const d = $("#xDate").value;
+  const when = d === toDateInput(new Date()) ? Date.now() : new Date(d + "T12:00").getTime();
+  const hasGst = $("#xGst").checked;
+  const gst = hasGst ? Math.min(amount, round2($("#xGstAmt").value)) : 0;
+  setDoc(doc(col("expenses")), {
+    title: [X.cat, details].filter(Boolean).join(" – "),
+    category: X.cat || "Other", details, amount, paidBy: X.pay,
+    gst, supplier: hasGst ? $("#xSupplier").value.trim() : "",
+    supplierTin: hasGst ? $("#xSupTin").value.trim() : "", invoiceNo: hasGst ? $("#xInvNo").value.trim() : "",
+    createdAtMs: when, createdAt: serverTimestamp(),
+  }).catch(fail);
+  toast(`Expense saved ✔ ${money(amount)}`);
+  resetExpForm();
+  $("#xMonth").value = d.slice(0, 7);
+  setTimeout(loadExpenses, 300);
+});
+
+async function loadExpenses() {
+  if (!S.shopId) return;
+  const [yy, mm] = ($("#xMonth").value || toDateInput(new Date()).slice(0, 7)).split("-").map(Number);
+  const from = new Date(yy, mm - 1, 1).getTime(), to = new Date(yy, mm, 1).getTime();
+  let list = [];
+  try {
+    const snap = await getDocs(query(col("expenses"), where("createdAtMs", ">=", from), where("createdAtMs", "<", to), orderBy("createdAtMs", "desc")));
+    list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (e) { return fail(e); }
+  const sum = (arr, f) => round2(arr.reduce((a, x) => a + (Number(f(x)) || 0), 0));
+  const total = sum(list, (e) => e.amount);
+  const stat = (l, v, c = "") => `<div class="stat ${c}"><span>${l}</span><b>${v}</b></div>`;
+  $("#xSummary").innerHTML =
+    stat("Total spent", money(total), "big") +
+    stat("💵 " + t("cash"), money(sum(list.filter((e) => (e.paidBy || "cash") === "cash"), (e) => e.amount))) +
+    stat("🏦 " + t("transfer"), money(sum(list.filter((e) => e.paidBy === "transfer"), (e) => e.amount))) +
+    stat("🧾 GST paid (claimable)", money(sum(list, (e) => e.gst))) +
+    stat("Entries", list.length);
+  const by = {};
+  list.forEach((e) => { const k = e.category || "Other"; by[k] = (by[k] || 0) + (Number(e.amount) || 0); });
+  $("#xByCat").innerHTML = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([c, v]) =>
+    `<div class="line"><div class="grow">${esc(catLabel(c))}</div><b>${money(v)}</b></div>`).join("");
+  $("#xList").innerHTML = list.map((e) => `
+    <div class="line">
+      <div class="grow"><b>${esc(e.category ? catLabel(e.category) : e.title)}</b>${e.details ? ` <span class="muted">${esc(e.details)}</span>` : ""}
+        <div class="muted">${fmtDateTime(new Date(e.createdAtMs))} · ${e.paidBy === "transfer" ? "Transfer" : "Cash"}${e.gst ? ` · 🧾 GST ${num(e.gst)}${e.supplier ? " · " + esc(e.supplier) : ""}` : ""}</div></div>
+      <b>${money(e.amount)}</b><button class="x" data-del-x="${e.id}">🗑</button>
+    </div>`).join("") || `<div class="empty ${dvc()}">${t("noExpenses")}</div>`;
+}
+$("#xMonth").addEventListener("change", loadExpenses);
+$("#xList").addEventListener("click", (e) => {
+  const id = e.target.dataset.delX; if (!id || !confirm("Delete this expense?")) return;
+  deleteDoc(doc(col("expenses"), id)).catch(fail);
+  setTimeout(loadExpenses, 300);
+});
+
+// ================= GST REPORT =================
+S.acctMode = "sum"; S.gstPeriod = "month";
+$("#acctModeSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-am]"); if (!b) return;
+  S.acctMode = b.dataset.am;
+  $$("#acctModeSeg button").forEach((x) => x.classList.toggle("active", x === b));
+  $("#sumView").classList.toggle("hidden", S.acctMode !== "sum");
+  $("#gstView").classList.toggle("hidden", S.acctMode !== "gst");
+  S.acctMode === "gst" ? loadGst() : loadAccounts();
+});
+$("#gstPeriodSeg").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-g]"); if (!b) return;
+  S.gstPeriod = b.dataset.g;
+  $$("#gstPeriodSeg button").forEach((x) => x.classList.toggle("active", x === b));
+  $("#gstCustom").classList.toggle("hidden", S.gstPeriod !== "custom");
+  if (S.gstPeriod === "custom") {
+    const n = new Date();
+    if (!$("#gFrom").value) $("#gFrom").value = toDateInput(new Date(n.getFullYear(), n.getMonth(), 1));
+    if (!$("#gTo").value) $("#gTo").value = toDateInput(n);
+  }
+  loadGst();
+});
+$("#gApply").addEventListener("click", loadGst);
+function gstRange() {
+  const n = new Date(), y = n.getFullYear(), m = n.getMonth(), q = Math.floor(m / 3) * 3;
+  switch (S.gstPeriod) {
+    case "lastMonth": return [new Date(y, m - 1, 1), new Date(y, m, 1)];
+    case "quarter": return [new Date(y, q, 1), new Date(y, q + 3, 1)];
+    case "lastQuarter": return [new Date(y, q - 3, 1), new Date(y, q, 1)];
+    case "custom": {
+      const f = new Date(($("#gFrom").value || toDateInput(n)) + "T00:00");
+      const t2 = new Date(($("#gTo").value || toDateInput(n)) + "T00:00");
+      return [f, new Date(t2.getFullYear(), t2.getMonth(), t2.getDate() + 1)];
+    }
+    default: return [new Date(y, m, 1), new Date(y, m + 1, 1)];
+  }
+}
+const fmtD = (d) => `${pad(d.getDate())}-${pad(d.getMonth() + 1)}-${d.getFullYear()}`;
+
+async function loadGst() {
+  if (!S.shopId) return;
+  const [fd, td] = gstRange(); const from = fd.getTime(), to = td.getTime();
+  const rq = (name) => query(col(name), where("createdAtMs", ">=", from), where("createdAtMs", "<", to), orderBy("createdAtMs", "asc"));
+  let sales = [], exps = [];
+  try {
+    const [a, b] = await Promise.all([getDocs(rq("sales")), getDocs(rq("expenses"))]);
+    sales = a.docs.map((d) => ({ id: d.id, ...d.data() }));
+    exps = b.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (e) { return fail(e); }
+  const sum = (arr, f) => round2(arr.reduce((x, o) => x + (Number(f(o)) || 0), 0));
+  const inv = sales.filter((s) => s.tax), plain = sales.filter((s) => !s.tax);
+  const buys = exps.filter((e) => Number(e.gst) > 0);
+  const R = {
+    from: fd, to: new Date(to - 1), inv, buys,
+    outTaxable: sum(inv, (s) => s.taxable), outGst: sum(inv, (s) => s.gst), outTotal: sum(inv, (s) => s.total),
+    plainTotal: sum(plain, (s) => s.total),
+    inTaxable: sum(buys, (e) => e.amount - e.gst), inGst: sum(buys, (e) => e.gst),
+  };
+  R.net = round2(R.outGst - R.inGst);
+  S.gst = R;
+  $("#gstPeriodLbl").textContent = `Period: ${fmtD(R.from)} to ${fmtD(R.to)}`;
+  const stat = (l, v, c = "") => `<div class="stat ${c}"><span>${l}</span><b>${v}</b></div>`;
+  $("#gstStats").innerHTML =
+    stat(R.net >= 0 ? "GST to pay MIRA" : "GST refundable / carry forward", money(Math.abs(R.net)), R.net >= 0 ? "bad big" : "good big") +
+    stat("Output GST (collected on sales)", money(R.outGst)) +
+    stat("Input GST (paid on purchases)", money(R.inGst)) +
+    stat("Taxable sales", money(R.outTaxable)) +
+    stat("Tax invoices", inv.length) +
+    stat("Taxable purchases", money(R.inTaxable)) +
+    stat("Sales without tax invoice", money(R.plainTotal));
+  $("#gstSales").innerHTML = inv.map((s) => `
+    <div class="line tap" data-id="${s.id}">
+      <div class="grow"><b>#${esc(s.billNo)}</b><div class="muted">${fmtDateTime(new Date(s.createdAtMs))}${s.customerTin ? " · TIN " + esc(s.customerTin) : ""}</div></div>
+      <div class="right"><b>${money(s.total)}</b><span class="muted">GST ${num(s.gst)}</span></div>
+    </div>`).join("") || `<div class="empty">No tax invoices in this period</div>`;
+  $("#gstBuys").innerHTML = buys.map((e) => `
+    <div class="line">
+      <div class="grow"><b>${esc(e.supplier || e.title)}</b><div class="muted">${fmtD(new Date(e.createdAtMs))}${e.supplierTin ? " · TIN " + esc(e.supplierTin) : ""}${e.invoiceNo ? " · Inv " + esc(e.invoiceNo) : ""}</div></div>
+      <div class="right"><b>${money(e.amount)}</b><span class="muted">GST ${num(e.gst)}</span></div>
+    </div>`).join("") || `<div class="empty">No purchases with GST in this period. Add them in 💸 Expenses.</div>`;
+}
+$("#gstSales").addEventListener("click", (e) => {
+  const row = e.target.closest(".line"); if (!row || !S.gst) return;
+  const s = S.gst.inv.find((x) => x.id === row.dataset.id); if (s) showBill(s, true);
+});
+$("#gstCsv").addEventListener("click", () => {
+  const R = S.gst; if (!R) return;
+  const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [
+    ["GST report", S.shop.legalName || S.shop.name], ["TIN", S.shop.tin || ""], ["Period", `${fmtD(R.from)} to ${fmtD(R.to)}`], [],
+    ["Taxable sales", R.outTaxable], ["Output GST", R.outGst], ["Taxable purchases", R.inTaxable], ["Input GST", R.inGst],
+    [R.net >= 0 ? "GST payable" : "GST refundable", Math.abs(R.net)], ["Sales without tax invoice", R.plainTotal], [],
+    ["SALES TAX INVOICES"], ["Invoice no", "Date", "Customer TIN", "Taxable value", "GST rate %", "GST", "Total"],
+    ...R.inv.map((s) => [s.billNo, fmtDateTime(new Date(s.createdAtMs)), s.customerTin || "", s.taxable, s.gstRate, s.gst, s.total]), [],
+    ["PURCHASES WITH GST"], ["Date", "Supplier", "Supplier TIN", "Invoice no", "Taxable value", "GST", "Total"],
+    ...R.buys.map((e) => [fmtD(new Date(e.createdAtMs)), e.supplier || e.title, e.supplierTin || "", e.invoiceNo || "", round2(e.amount - e.gst), e.gst, e.amount]),
+  ];
+  const blob = new Blob(["﻿" + rows.map((r) => r.map(q).join(",")).join("\n")], { type: "text/csv" });
+  downloadBlob(blob, `gst-report-${toDateInput(R.from)}-to-${toDateInput(R.to)}.csv`);
+});
+$("#gstPrint").addEventListener("click", () => {
+  const R = S.gst; if (!R) return;
+  const w = window.open("", "_blank"); if (!w) return toast("Allow pop-ups to print");
+  const tr = (cells, th) => `<tr>${cells.map((c) => `<${th ? "th" : "td"}>${esc(c)}</${th ? "th" : "td"}>`).join("")}</tr>`;
+  w.document.write(`<html><head><title>GST report</title><style>
+    body{font-family:sans-serif;padding:16px;font-size:13px}table{border-collapse:collapse;width:100%;margin:8px 0 18px}
+    td,th{border:1px solid #bbb;padding:5px 7px;text-align:left}th{background:#f3f3f3}.big{font-size:18px;font-weight:700}</style></head><body>
+    <h2>GST report – ${esc(S.shop.legalName || S.shop.name)}</h2>
+    <div>TIN: ${esc(S.shop.tin || "-")} · Period: ${fmtD(R.from)} to ${fmtD(R.to)}</div>
+    <table>${tr(["Taxable sales", money(R.outTaxable)])}${tr(["Output GST", money(R.outGst)])}${tr(["Taxable purchases", money(R.inTaxable)])}
+      ${tr(["Input GST", money(R.inGst)])}<tr><td class="big">${R.net >= 0 ? "GST payable" : "GST refundable"}</td><td class="big">${money(Math.abs(R.net))}</td></tr>
+      ${tr(["Sales without tax invoice", money(R.plainTotal)])}</table>
+    <h3>Sales tax invoices</h3><table>${tr(["Invoice", "Date", "Customer TIN", "Taxable", "GST", "Total"], true)}
+      ${R.inv.map((s) => tr([s.billNo, fmtDateTime(new Date(s.createdAtMs)), s.customerTin || "", num(s.taxable), num(s.gst), num(s.total)])).join("")}</table>
+    <h3>Purchases with GST</h3><table>${tr(["Date", "Supplier", "TIN", "Invoice", "Taxable", "GST", "Total"], true)}
+      ${R.buys.map((e) => tr([fmtD(new Date(e.createdAtMs)), e.supplier || e.title, e.supplierTin || "", e.invoiceNo || "", num(e.amount - e.gst), num(e.gst), num(e.amount)])).join("")}</table>
+    <script>window.onload=()=>window.print()<\/script></body></html>`);
+  w.document.close();
+});

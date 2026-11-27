@@ -50,7 +50,8 @@ service cloud.firestore {
       // Admin can change anything; shop users can only change their own bill settings
       allow update: if isAdmin() || (isMember(shopId)
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['name', 'phone', 'address', 'country', 'footer']));
+             .hasOnly(['name', 'phone', 'address', 'country', 'footer',
+                       'legalName', 'tin', 'gstRate', 'gstInclusive', 'taxDefault', 'banks', 'showBank']));
 
       // items, sales, expenses — ONLY that shop's users. Admin cannot read these.
       match /{sub}/{docId} {

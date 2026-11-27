@@ -119,6 +119,11 @@
 
     <!-- ACCOUNTS -->
     <div id="view-accounts" class="view hidden">
+      <div class="seg" id="acctModeSeg">
+        <button data-am="sum" class="active">📊 Summary</button>
+        <button data-am="gst">🧾 GST report</button>
+      </div>
+      <div id="sumView">
       <div class="seg scroll" id="periodSeg">
         <button data-p="today" class="active" data-i18n="today">Today</button>
         <button data-p="yesterday" data-i18n="yesterday">Yesterday</button>
@@ -135,11 +140,7 @@
       <div id="stats" class="stats"></div>
 
       <h3 data-i18n="expenses">Expenses</h3>
-      <form id="expenseForm" class="row">
-        <input id="expTitle" placeholder="e.g. Oil, gas, rent" data-i18n-ph="expPh" required>
-        <input id="expAmount" type="number" inputmode="decimal" placeholder="MVR" data-i18n-ph="mvr" required min="0" step="any" class="narrow">
-        <button class="btn primary" data-i18n="add">Add</button>
-      </form>
+      <button type="button" class="btn big" id="goAddExpense">➖ Add expense</button>
       <div id="expenseList" class="list"></div>
 
       <h3 data-i18n="topItems">Top selling items</h3>
@@ -147,6 +148,67 @@
 
       <h3 class="row between"><span data-i18n="bills">Bills</span> <button class="btn small" id="exportCsv">⬇ <span data-i18n="downloadCsv">Download CSV</span></button></h3>
       <div id="billList" class="list"></div>
+      </div>
+
+      <!-- GST REPORT -->
+      <div id="gstView" class="hidden stack">
+        <div class="seg" id="gstPeriodSeg">
+          <button data-g="month" class="active">This month</button>
+          <button data-g="lastMonth">Last month</button>
+          <button data-g="quarter">This quarter</button>
+          <button data-g="lastQuarter">Last quarter</button>
+          <button data-g="custom">Custom</button>
+        </div>
+        <div id="gstCustom" class="row hidden">
+          <input type="date" id="gFrom"><input type="date" id="gTo">
+          <button class="btn" id="gApply">Go</button>
+        </div>
+        <p class="muted" id="gstPeriodLbl"></p>
+        <div id="gstStats" class="stats"></div>
+        <p class="muted">This summary helps you fill your GST return. Check the figures with MIRA or your accountant before filing.</p>
+        <h3>🧾 Sales tax invoices</h3>
+        <div id="gstSales" class="list"></div>
+        <h3>🛒 Purchases with GST</h3>
+        <div id="gstBuys" class="list"></div>
+        <div class="row">
+          <button class="btn grow" id="gstCsv">⬇ Download GST CSV</button>
+          <button class="btn grow" id="gstPrint">🖨 Print report</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- EXPENSES -->
+    <div id="view-expenses" class="view hidden">
+      <form id="expForm" class="box stack" autocomplete="off">
+        <h3 style="margin:0">➖ Add expense</h3>
+        <label>Amount (MVR) <input id="xAmount" type="number" inputmode="decimal" min="0" step="any" required class="amount-big"></label>
+        <div class="chips" id="xCats"></div>
+        <input id="xTitle" placeholder="Details, e.g. 2 gas cylinders">
+        <label>Date <input id="xDate" type="date" required></label>
+        <div class="seg" id="xPaySeg">
+          <button type="button" data-pay="cash" class="active">💵 <span data-i18n="cash">Cash</span></button>
+          <button type="button" data-pay="transfer">🏦 <span data-i18n="transfer">Transfer</span></button>
+        </div>
+        <label class="check"><input type="checkbox" id="xGst"> <span>🧾 Supplier bill includes GST</span></label>
+        <div id="xGstBox" class="hidden stack">
+          <label>GST in this bill (MVR) <input id="xGstAmt" type="number" inputmode="decimal" min="0" step="any"></label>
+          <input id="xSupplier" placeholder="Supplier name">
+          <div class="row">
+            <input id="xSupTin" placeholder="Supplier TIN">
+            <input id="xInvNo" placeholder="Supplier invoice no.">
+          </div>
+        </div>
+        <button class="btn primary big">✔ Save expense</button>
+      </form>
+
+      <div class="row between" style="margin-top:16px">
+        <h3 style="margin:0" data-i18n="expenses">Expenses</h3>
+        <input type="month" id="xMonth" class="narrow" style="width:170px">
+      </div>
+      <div id="xSummary" class="stats"></div>
+      <div id="xByCat" class="list"></div>
+      <h3>List</h3>
+      <div id="xList" class="list"></div>
     </div>
 
     <!-- SETTINGS -->
@@ -158,6 +220,19 @@
         <label><span data-i18n="country">Country code (Maldives = 960)</span> <input id="setCountry" inputmode="numeric"></label>
         <label><span data-i18n="footer">Bill footer message</span> <input id="setFooter" dir="auto"></label>
         <div class="chips" id="footerChips"></div>
+        <h3>🏦 Bank accounts (for transfer payments)</h3>
+        <p class="muted" style="margin:0">Shown on bills so customers can copy the account number and pay by transfer.</p>
+        <div id="bankRows" class="stack"></div>
+        <button type="button" class="btn" id="addBankBtn">+ Add bank account</button>
+        <label class="check"><input type="checkbox" id="setShowBank"> <span>Show bank account on bills</span></label>
+        <datalist id="bankNames"><option value="BML"><option value="MIB"><option value="CBM"><option value="SBI"><option value="HBL"><option value="Bank of Ceylon"><option value="MCB"></datalist>
+
+        <h3 data-i18n="taxHead">🧾 Tax (GST) invoice</h3>
+        <label><span data-i18n="legalName">Registered business name</span> <input id="setLegalName" placeholder="As on GST certificate" data-i18n-ph="asOnCert"></label>
+        <label><span data-i18n="tin">TIN / GST registration no.</span> <input id="setTin"></label>
+        <label><span data-i18n="gstRate">GST rate (%)</span> <input id="setGst" type="number" inputmode="decimal" min="0" step="any"></label>
+        <label class="check"><input type="checkbox" id="setGstIncl"> <span data-i18n="gstIncl">My prices already include GST</span></label>
+        <label class="check"><input type="checkbox" id="setTaxDefault"> <span data-i18n="taxDefault">Make every receipt a tax invoice</span></label>
         <button class="btn primary big" data-i18n="saveSettings">Save settings</button>
       </form>
       <p class="muted center whoami"></p>
@@ -168,6 +243,7 @@
   <nav class="bottomnav">
     <button data-view="sell" class="active">🛒<span data-i18n="navSell">Sell</span></button>
     <button data-view="items">📦<span data-i18n="navItems">Items</span></button>
+    <button data-view="expenses">💸<span data-i18n="expenses">Expenses</span></button>
     <button data-view="accounts">📊<span data-i18n="navAccounts">Accounts</span></button>
     <button data-view="settings">⚙️<span data-i18n="navSettings">Settings</span></button>
   </nav>
@@ -233,6 +309,12 @@
     <div id="cartLines" class="list"></div>
     <div class="row between"><span>Subtotal</span><b id="coSubtotal"></b></div>
     <label class="row between"><span>Discount</span><input id="coDiscount" type="number" inputmode="decimal" min="0" step="any" value="0" class="narrow"></label>
+    <div class="taxbox">
+      <label class="check"><input type="checkbox" id="coTax"> <span id="taxLbl">🧾 Tax invoice (GST 8%)</span></label>
+      <input id="coTin" class="hidden" placeholder="Customer TIN (optional, for GST-registered customers)">
+    </div>
+    <div class="row between hidden" id="taxableRow"><span>Taxable value</span><b id="coTaxable"></b></div>
+    <div class="row between hidden" id="gstRow"><span id="gstLbl">GST</span><b id="coGst"></b></div>
     <div class="row between grand"><span data-i18n="total">TOTAL</span><b id="coTotal"></b></div>
 
     <div class="seg" id="paySeg">
@@ -259,10 +341,21 @@
 <div id="billModal" class="modal hidden">
   <div class="sheet">
     <div class="sheet-head"><h2>Receipt</h2><button class="x" data-close>✕</button></div>
+    <img id="billImg" class="bill-img hidden" alt="Bill">
     <pre id="billText" class="receipt"></pre>
+    <div id="billBankBox" class="hidden stack">
+      <span class="muted">Account to send:</span>
+      <div class="chips" id="billBankChips"></div>
+    </div>
     <input id="billPhone" type="tel" inputmode="tel" placeholder="Customer WhatsApp no. e.g. 7771234">
+    <button class="btn wa big" id="billPhotoBtn">📸 Send photo bill</button>
+    <div class="row wrap" id="billAccRow">
+      <button class="btn wa grow" id="billAccWaBtn">🏦 Send account no.</button>
+      <button class="btn grow" id="billCopyAccBtn">📋 Copy account no.</button>
+    </div>
     <div class="row wrap">
-      <button class="btn wa grow" id="billWaBtn">Send on WhatsApp</button>
+      <button class="btn grow" id="billWaBtn">💬 Text bill</button>
+      <button class="btn grow" id="billSaveImgBtn">⬇ Save photo</button>
       <button class="btn grow" id="billPrintBtn">🖨 Print</button>
     </div>
     <div class="row">
